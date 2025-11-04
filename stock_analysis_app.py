@@ -21,26 +21,15 @@ st.title("株価分析ダッシュボード")
 # サイドバーにモード選択を追加
 st.sidebar.header("モード選択")
 
-# デバッグ情報をサイドバーに常に表示
-st.sidebar.write("---")
-st.sidebar.write("**🔍 現在の状態**")
-st.sidebar.write(f"switch_to_analysis: {st.session_state.get('switch_to_analysis', False)}")
-st.sidebar.write(f"current_mode: {st.session_state.get('current_mode', 'N/A')}")
-st.sidebar.write(f"analyze_ticker: {st.session_state.get('analyze_ticker', 'N/A')}")
-st.sidebar.write("---")
-
 # スクリーニングから詳細分析に切り替える場合
 if 'current_mode' not in st.session_state:
     st.session_state['current_mode'] = "個別銘柄分析"
 
 # 強制的に個別銘柄分析モードに切り替え
 if st.session_state.get('switch_to_analysis', False):
-    st.sidebar.warning("⚠️ モード切替が要求されました！")
     st.session_state['current_mode'] = "個別銘柄分析"
     st.session_state['switch_to_analysis'] = False
-    # モード切替直後にフラグをクリア
     mode = "個別銘柄分析"
-    st.sidebar.success(f"✅ 個別銘柄分析モードに切り替えました")
 else:
     mode = st.sidebar.radio(
         "分析モードを選択",
@@ -56,14 +45,6 @@ if mode == "個別銘柄分析":
 
     # セッション状態から銘柄コードを取得（スクリーニングから来た場合）
     default_ticker = st.session_state.get('analyze_ticker', '7203.T')
-
-    # デバッグ情報（開発時のみ表示）
-    if st.sidebar.checkbox("デバッグ情報を表示", value=False):
-        st.sidebar.write("**セッション状態:**")
-        st.sidebar.write(f"- analyze_ticker: {st.session_state.get('analyze_ticker')}")
-        st.sidebar.write(f"- current_mode: {st.session_state.get('current_mode')}")
-        st.sidebar.write(f"- auto_run_completed: {st.session_state.get('auto_run_completed')}")
-        st.sidebar.write(f"- last_ticker: {st.session_state.get('last_ticker')}")
 
     ticker = st.sidebar.text_input("銘柄コード（例: 7203.T, AAPL）", default_ticker)
     start_date = st.sidebar.date_input("開始日", datetime.now() - timedelta(days=365*3))
@@ -105,12 +86,21 @@ def get_stock_data(ticker, start_date, end_date):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(start=start_date, end=end_date)
-        
+
         # 基本情報を取得
         info = stock.info
-        financials = stock.financials
-        balance_sheet = stock.balance_sheet
-        cashflow = stock.cashflow
+
+        # 財務諸表を取得（年次データ - より多くの過去データを取得）
+        # yfinanceは通常4年分のデータを返すが、利用可能なすべてのデータを取得
+        financials = stock.financials  # 年次損益計算書
+        balance_sheet = stock.balance_sheet  # 年次貸借対照表
+        cashflow = stock.cashflow  # 年次キャッシュフロー
+
+        # 四半期データも取得可能（より詳細な分析用）
+        # quarterly_financials = stock.quarterly_financials
+        # quarterly_balance_sheet = stock.quarterly_balance_sheet
+        # quarterly_cashflow = stock.quarterly_cashflow
+
         dividends = stock.dividends
 
         return hist, info, financials, balance_sheet, cashflow, dividends
@@ -299,6 +289,314 @@ def get_stock_list(market):
         }
     return stocks
 
+def translate_financial_terms(df):
+    """財務諸表の項目を日本語と英語の両方で表示"""
+    # 主要な財務項目の日英対応辞書
+    translations = {
+        # 損益計算書
+        'Total Revenue': '売上高 (Total Revenue)',
+        'Cost Of Revenue': '売上原価 (Cost Of Revenue)',
+        'Gross Profit': '売上総利益 (Gross Profit)',
+        'Operating Expense': '営業費用 (Operating Expense)',
+        'Operating Income': '営業利益 (Operating Income)',
+        'Net Income': '当期純利益 (Net Income)',
+        'EBITDA': 'EBITDA',
+        'EBIT': 'EBIT',
+        'Interest Income': '受取利息 (Interest Income)',
+        'Interest Expense': '支払利息 (Interest Expense)',
+        'Net Interest Income': '純金利収益 (Net Interest Income)',
+        'Other Income Expense': 'その他損益 (Other Income Expense)',
+        'Pretax Income': '税引前当期純利益 (Pretax Income)',
+        'Tax Provision': '法人税等 (Tax Provision)',
+        'Net Income From Continuing Operations': '継続事業からの純利益 (Net Income From Continuing Ops)',
+        'Diluted EPS': '希薄化後EPS (Diluted EPS)',
+        'Basic EPS': '基本的EPS (Basic EPS)',
+        'Diluted Average Shares': '希薄化後平均株式数 (Diluted Average Shares)',
+        'Basic Average Shares': '基本的平均株式数 (Basic Average Shares)',
+        'Total Operating Income As Reported': '報告営業利益 (Total Operating Income As Reported)',
+        'Total Expenses': '総費用 (Total Expenses)',
+        'Net Income Common Stockholders': '普通株主に帰属する純利益 (Net Income Common Stockholders)',
+        'Reconciled Depreciation': '減価償却費 (Reconciled Depreciation)',
+        'Reconciled Cost Of Revenue': '調整後売上原価 (Reconciled Cost Of Revenue)',
+        'Normalized Income': '正常化純利益 (Normalized Income)',
+        'Tax Rate For Calcs': '計算用税率 (Tax Rate For Calcs)',
+        'Tax Effect Of Unusual Items': '特別項目の税効果 (Tax Effect Of Unusual Items)',
+
+        # 貸借対照表
+        'Total Assets': '総資産 (Total Assets)',
+        'Total Liabilities Net Minority Interest': '総負債 (Total Liabilities)',
+        'Total Equity Gross Minority Interest': '純資産 (Total Equity)',
+        'Stockholders Equity': '株主資本 (Stockholders Equity)',
+        'Total Capitalization': '総資本 (Total Capitalization)',
+        'Common Stock Equity': '普通株式資本 (Common Stock Equity)',
+        'Capital Lease Obligations': 'キャピタルリース債務 (Capital Lease Obligations)',
+        'Net Tangible Assets': '有形固定資産純額 (Net Tangible Assets)',
+        'Working Capital': '運転資本 (Working Capital)',
+        'Invested Capital': '投下資本 (Invested Capital)',
+        'Tangible Book Value': '有形簿価 (Tangible Book Value)',
+        'Total Debt': '総負債 (Total Debt)',
+        'Net Debt': '純負債 (Net Debt)',
+        'Share Issued': '発行済株式数 (Share Issued)',
+        'Ordinary Shares Number': '普通株式数 (Ordinary Shares Number)',
+        'Current Assets': '流動資産 (Current Assets)',
+        'Current Liabilities': '流動負債 (Current Liabilities)',
+        'Other Current Assets': 'その他流動資産 (Other Current Assets)',
+        'Other Current Liabilities': 'その他流動負債 (Other Current Liabilities)',
+        'Non Current Assets': '固定資産 (Non Current Assets)',
+        'Non Current Liabilities': '固定負債 (Non Current Liabilities)',
+        'Cash And Cash Equivalents': '現金及び現金同等物 (Cash And Cash Equivalents)',
+        'Cash Cash Equivalents And Short Term Investments': '現金及び短期投資 (Cash, Cash Equivalents And Short Term Investments)',
+        'Cash Financial': '金融機関の現金 (Cash Financial)',
+        'Cash Equivalents': '現金同等物 (Cash Equivalents)',
+        'Other Short Term Investments': 'その他短期投資 (Other Short Term Investments)',
+        'Receivables': '売掛金 (Receivables)',
+        'Accounts Receivable': '売掛金 (Accounts Receivable)',
+        'Gross Accounts Receivable': '総売掛金 (Gross Accounts Receivable)',
+        'Allowance For Doubtful Accounts Receivable': '貸倒引当金 (Allowance For Doubtful Accounts Receivable)',
+        'Other Receivables': 'その他債権 (Other Receivables)',
+        'Inventory': '棚卸資産 (Inventory)',
+        'Finished Goods': '製品 (Finished Goods)',
+        'Work In Process': '仕掛品 (Work In Process)',
+        'Raw Materials': '原材料 (Raw Materials)',
+        'Properties': '不動産 (Properties)',
+        'Land And Improvements': '土地及び改良 (Land And Improvements)',
+        'Buildings And Improvements': '建物及び改良 (Buildings And Improvements)',
+        'Machinery Furniture Equipment': '機械設備 (Machinery Furniture Equipment)',
+        'Leases': 'リース資産 (Leases)',
+        'Accumulated Depreciation': '減価償却累計額 (Accumulated Depreciation)',
+        'Goodwill And Other Intangible Assets': 'のれん及び無形資産 (Goodwill And Other Intangible Assets)',
+        'Goodwill': 'のれん (Goodwill)',
+        'Other Intangible Assets': 'その他無形資産 (Other Intangible Assets)',
+        'Investments And Advances': '投資及び前払金 (Investments And Advances)',
+        'Long Term Equity Investment': '長期株式投資 (Long Term Equity Investment)',
+        'Other Non Current Assets': 'その他固定資産 (Other Non Current Assets)',
+        'Payables And Accrued Expenses': '買掛金及び未払費用 (Payables And Accrued Expenses)',
+        'Payables': '買掛金 (Payables)',
+        'Accounts Payable': '買掛金 (Accounts Payable)',
+        'Total Tax Payable': '未払税金 (Total Tax Payable)',
+        'Income Tax Payable': '未払法人税 (Income Tax Payable)',
+        'Dividends Payable': '未払配当金 (Dividends Payable)',
+        'Accrued Interest Payable': '未払利息 (Accrued Interest Payable)',
+        'Pensionand Other Post Retirement Benefit Plans Current': '年金及び退職給付負債(流動) (Pension and Other Post Retirement Benefit Plans Current)',
+        'Current Debt': '短期借入金 (Current Debt)',
+        'Current Debt And Capital Lease Obligation': '短期借入金及びリース債務 (Current Debt And Capital Lease Obligation)',
+        'Current Deferred Liabilities': '繰延負債(流動) (Current Deferred Liabilities)',
+        'Current Deferred Revenue': '繰延収益(流動) (Current Deferred Revenue)',
+        'Other Current Borrowings': 'その他短期借入金 (Other Current Borrowings)',
+        'Long Term Debt': '長期借入金 (Long Term Debt)',
+        'Long Term Debt And Capital Lease Obligation': '長期借入金及びリース債務 (Long Term Debt And Capital Lease Obligation)',
+        'Non Current Deferred Liabilities': '繰延負債(固定) (Non Current Deferred Liabilities)',
+        'Non Current Deferred Taxes Liabilities': '繰延税金負債 (Non Current Deferred Taxes Liabilities)',
+        'Non Current Deferred Revenue': '繰延収益(固定) (Non Current Deferred Revenue)',
+        'Tradeand Other Payables Non Current': '長期買掛金 (Trade and Other Payables Non Current)',
+        'Other Non Current Liabilities': 'その他固定負債 (Other Non Current Liabilities)',
+        'Capital Stock': '資本金 (Capital Stock)',
+        'Common Stock': '普通株式 (Common Stock)',
+        'Retained Earnings': '利益剰余金 (Retained Earnings)',
+        'Gains Losses Not Affecting Retained Earnings': 'その他包括利益累計額 (Gains Losses Not Affecting Retained Earnings)',
+        'Other Equity Adjustments': 'その他資本調整 (Other Equity Adjustments)',
+        'Treasury Stock': '自己株式 (Treasury Stock)',
+
+        # キャッシュフロー計算書
+        'Operating Cash Flow': '営業活動によるキャッシュフロー (Operating Cash Flow)',
+        'Investing Cash Flow': '投資活動によるキャッシュフロー (Investing Cash Flow)',
+        'Financing Cash Flow': '財務活動によるキャッシュフロー (Financing Cash Flow)',
+        'End Cash Position': '期末現金残高 (End Cash Position)',
+        'Income Tax Paid Supplemental Data': '法人税等の支払額 (Income Tax Paid Supplemental Data)',
+        'Interest Paid Supplemental Data': '利息の支払額 (Interest Paid Supplemental Data)',
+        'Capital Expenditure': '設備投資 (Capital Expenditure)',
+        'Issuance Of Capital Stock': '株式の発行 (Issuance Of Capital Stock)',
+        'Issuance Of Debt': '社債の発行 (Issuance Of Debt)',
+        'Repayment Of Debt': '社債の償還 (Repayment Of Debt)',
+        'Repurchase Of Capital Stock': '自己株式の取得 (Repurchase Of Capital Stock)',
+        'Free Cash Flow': 'フリーキャッシュフロー (Free Cash Flow)',
+        'Change In Working Capital': '運転資本の増減 (Change In Working Capital)',
+        'Change In Receivables': '売掛金の増減 (Change In Receivables)',
+        'Change In Inventory': '棚卸資産の増減 (Change In Inventory)',
+        'Change In Payables And Accrued Expense': '買掛金及び未払費用の増減 (Change In Payables And Accrued Expense)',
+        'Change In Payable': '買掛金の増減 (Change In Payable)',
+        'Changes In Account Receivables': '売掛金の増減 (Changes In Account Receivables)',
+        'Stock Based Compensation': '株式報酬 (Stock Based Compensation)',
+        'Deferred Tax': '繰延税金 (Deferred Tax)',
+        'Deferred Income Tax': '繰延法人税 (Deferred Income Tax)',
+        'Depreciation Amortization Depletion': '減価償却費 (Depreciation Amortization Depletion)',
+        'Depreciation And Amortization': '減価償却費 (Depreciation And Amortization)',
+        'Depreciation': '減価償却費 (Depreciation)',
+        'Amortization Of Securities': '有価証券償却 (Amortization Of Securities)',
+        'Asset Impairment Charge': '資産減損損失 (Asset Impairment Charge)',
+        'Provision For Doubtful Accounts': '貸倒引当金繰入 (Provision For Doubtful Accounts)',
+        'Purchase Of Investment': '投資の取得 (Purchase Of Investment)',
+        'Sale Of Investment': '投資の売却 (Sale Of Investment)',
+        'Purchase Of Business': '事業の取得 (Purchase Of Business)',
+        'Sale Of Business': '事業の売却 (Sale Of Business)',
+        'Purchase Of PPE': '有形固定資産の取得 (Purchase Of PPE)',
+        'Sale Of PPE': '有形固定資産の売却 (Sale Of PPE)',
+        'Net PPE Purchase And Sale': '有形固定資産の取得及び売却(純額) (Net PPE Purchase And Sale)',
+        'Net Investment Purchase And Sale': '投資の取得及び売却(純額) (Net Investment Purchase And Sale)',
+        'Net Business Purchase And Sale': '事業の取得及び売却(純額) (Net Business Purchase And Sale)',
+        'Common Stock Dividend Paid': '配当金の支払 (Common Stock Dividend Paid)',
+        'Common Stock Issuance': '普通株式の発行 (Common Stock Issuance)',
+        'Common Stock Payments': '普通株式の取得 (Common Stock Payments)',
+        'Net Common Stock Issuance': '普通株式の発行及び取得(純額) (Net Common Stock Issuance)',
+        'Long Term Debt Issuance': '長期借入 (Long Term Debt Issuance)',
+        'Long Term Debt Payments': '長期借入金の返済 (Long Term Debt Payments)',
+        'Net Long Term Debt Issuance': '長期借入及び返済(純額) (Net Long Term Debt Issuance)',
+        'Short Term Debt Issuance': '短期借入 (Short Term Debt Issuance)',
+        'Short Term Debt Payments': '短期借入金の返済 (Short Term Debt Payments)',
+        'Net Short Term Debt Issuance': '短期借入及び返済(純額) (Net Short Term Debt Issuance)',
+        'Net Issuance Payments Of Debt': '借入及び返済(純額) (Net Issuance Payments Of Debt)',
+        'Beginning Cash Position': '期首現金残高 (Beginning Cash Position)',
+        'Changes In Cash': '現金の増減 (Changes In Cash)',
+        'Effect Of Exchange Rate Changes': '為替変動の影響 (Effect Of Exchange Rate Changes)',
+
+        # その他よく出る項目
+        'Selling General And Administration': '販売費及び一般管理費 (Selling General And Administration)',
+        'Selling And Marketing Expense': '販売費 (Selling And Marketing Expense)',
+        'General And Administrative Expense': '一般管理費 (General And Administrative Expense)',
+        'Research And Development': '研究開発費 (Research And Development)',
+        'Other Gand A': 'その他販管費 (Other G&A)',
+        'Gross PPE': '有形固定資産総額 (Gross PPE)',
+        'Net PPE': '有形固定資産純額 (Net PPE)',
+        'Total Non Current Assets': '固定資産合計 (Total Non Current Assets)',
+        'Total Current Assets': '流動資産合計 (Total Current Assets)',
+        'Total Non Current Liabilities Net Minority Interest': '固定負債合計 (Total Non Current Liabilities)',
+        'Total Current Liabilities': '流動負債合計 (Total Current Liabilities)',
+        'Minority Interest': '少数株主持分 (Minority Interest)',
+        'Preferred Stock': '優先株式 (Preferred Stock)',
+        'Additional Paid In Capital': '資本剰余金 (Additional Paid In Capital)',
+        'Other Comprehensive Income': 'その他包括利益 (Other Comprehensive Income)',
+        'Accumulated Other Comprehensive Income': 'その他包括利益累計額 (Accumulated Other Comprehensive Income)',
+        'Construction In Progress': '建設仮勘定 (Construction In Progress)',
+        'Land': '土地 (Land)',
+        'Buildings': '建物 (Buildings)',
+        'Machinery': '機械装置 (Machinery)',
+        'Vehicles': '車両運搬具 (Vehicles)',
+        'Computer And Equipment': 'コンピュータ及び設備 (Computer And Equipment)',
+        'Furniture And Fixtures': '器具備品 (Furniture And Fixtures)',
+        'Line Of Credit': '与信枠 (Line Of Credit)',
+        'Commercial Paper': 'コマーシャルペーパー (Commercial Paper)',
+        'Long Term Capital Lease Obligation': '長期キャピタルリース債務 (Long Term Capital Lease Obligation)',
+        'Current Capital Lease Obligation': '短期キャピタルリース債務 (Current Capital Lease Obligation)',
+        'Notes Receivable': '受取手形 (Notes Receivable)',
+        'Loans Receivable': '貸付金 (Loans Receivable)',
+        'Prepaid Assets': '前払費用 (Prepaid Assets)',
+        'Restricted Cash': '拘束性預金 (Restricted Cash)',
+        'Securities And Investments': '有価証券及び投資 (Securities And Investments)',
+        'Available For Sale Securities': '売却可能有価証券 (Available For Sale Securities)',
+        'Held To Maturity Securities': '満期保有有価証券 (Held To Maturity Securities)',
+        'Trading Securities': '売買目的有価証券 (Trading Securities)',
+        'Financial Assets': '金融資産 (Financial Assets)',
+        'Investments In Joint Ventures': '共同支配事業投資 (Investments In Joint Ventures)',
+        'Investments In Associates': '関連会社投資 (Investments In Associates)',
+        'Investments In Subsidiaries': '子会社投資 (Investments In Subsidiaries)',
+        'Interest Receivable': '未収利息 (Interest Receivable)',
+        'Employee Benefits': '従業員給付 (Employee Benefits)',
+        'Pension Provisions': '年金引当金 (Pension Provisions)',
+        'Restructuring And Mergern Acquisition': '事業再編及びM&A費用 (Restructuring And M&A)',
+        'Impairment Of Capital Assets': '固定資産減損損失 (Impairment Of Capital Assets)',
+        'Write Off': '償却 (Write Off)',
+        'Gain Loss On Sale Of Security': '有価証券売却損益 (Gain Loss On Sale Of Security)',
+        'Gain Loss On Sale Of PPE': '固定資産売却損益 (Gain Loss On Sale Of PPE)',
+        'Earnings From Equity Interest': '持分法投資損益 (Earnings From Equity Interest)',
+        'Gain On Sale Of Business': '事業売却益 (Gain On Sale Of Business)',
+        'Loss On Sale Of Business': '事業売却損 (Loss On Sale Of Business)',
+        'Other Special Charges': 'その他特別損失 (Other Special Charges)',
+        'Other Non Operating Income Expenses': 'その他営業外損益 (Other Non Operating Income Expenses)',
+        'Net Non Operating Interest Income Expense': '営業外純金利損益 (Net Non Operating Interest Income Expense)',
+        'Interest Income Non Operating': '営業外受取利息 (Interest Income Non Operating)',
+        'Interest Expense Non Operating': '営業外支払利息 (Interest Expense Non Operating)',
+        'Net Investment Income': '投資純利益 (Net Investment Income)',
+        'Investment Income': '投資収益 (Investment Income)',
+        'Investment Expense': '投資費用 (Investment Expense)',
+        'Rent Expense': '賃借料 (Rent Expense)',
+        'Rent Income': '賃貸収入 (Rent Income)',
+        'Gain Loss On Investment Securities': '投資有価証券評価損益 (Gain Loss On Investment Securities)',
+        'Earnings Losses From Equity Interest Net Of Tax': '持分法投資損益(税引後) (Earnings Losses From Equity Interest Net Of Tax)',
+        'Total Unusual Items': '特別項目合計 (Total Unusual Items)',
+        'Total Unusual Items Excluding Goodwill': 'のれんを除く特別項目合計 (Total Unusual Items Excluding Goodwill)',
+        'Net Income Including Noncontrolling Interests': '非支配持分を含む純利益 (Net Income Including Noncontrolling Interests)',
+        'Net Income Continuous Operations': '継続事業純利益 (Net Income Continuous Operations)',
+        'Minority Interests': '少数株主損益 (Minority Interests)',
+        'Net Income Attributable To Common Shareholders': '普通株主に帰属する純利益 (Net Income Attributable To Common Shareholders)',
+
+        # 追加の金融・費用関連項目
+        'Total Other Finance Cost': 'その他金融費用合計 (Total Other Finance Cost)',
+        'Other Finance Cost': 'その他金融費用 (Other Finance Cost)',
+        'Finance Cost': '金融費用 (Finance Cost)',
+        'Finance Income': '金融収益 (Finance Income)',
+        'Net Finance Cost': '純金融費用 (Net Finance Cost)',
+        'Foreign Exchange Gain Loss': '為替差損益 (Foreign Exchange Gain Loss)',
+        'Foreign Exchange Loss': '為替差損 (Foreign Exchange Loss)',
+        'Foreign Exchange Gain': '為替差益 (Foreign Exchange Gain)',
+        'Insurance And Claims': '保険及び保険金請求 (Insurance And Claims)',
+        'Salaries And Wages': '給与及び賃金 (Salaries And Wages)',
+        'Payroll Expense': '人件費 (Payroll Expense)',
+        'Legal And Professional Fees': '法務及び専門家報酬 (Legal And Professional Fees)',
+        'Advertising Expense': '広告宣伝費 (Advertising Expense)',
+        'Marketing Expense': '販促費 (Marketing Expense)',
+        'Travel Expense': '旅費交通費 (Travel Expense)',
+        'Communication Expense': '通信費 (Communication Expense)',
+        'Utilities Expense': '水道光熱費 (Utilities Expense)',
+        'Repairs And Maintenance': '修繕維持費 (Repairs And Maintenance)',
+        'Office Expense': '事務費 (Office Expense)',
+        'Supplies Expense': '消耗品費 (Supplies Expense)',
+        'Insurance Expense': '保険料 (Insurance Expense)',
+        'Taxes Excluding Income Tax': '租税公課 (Taxes Excluding Income Tax)',
+        'Amortization': '償却費 (Amortization)',
+        'Amortization Of Intangibles': '無形資産償却 (Amortization Of Intangibles)',
+        'DD And A': '減価償却費及び償却費 (DD&A)',
+        'Exploration And Development': '探鉱開発費 (Exploration And Development)',
+        'Gain Loss On Disposal Of Assets': '資産処分損益 (Gain Loss On Disposal Of Assets)',
+        'Gain On Disposal Of Assets': '資産処分益 (Gain On Disposal Of Assets)',
+        'Loss On Disposal Of Assets': '資産処分損 (Loss On Disposal Of Assets)',
+        'Restructuring Charges': '事業再編費用 (Restructuring Charges)',
+        'Restructuring And Impairment': '事業再編及び減損 (Restructuring And Impairment)',
+        'Merger And Acquisition': 'M&A費用 (Merger And Acquisition)',
+        'Litigation Settlement': '訴訟和解金 (Litigation Settlement)',
+        'Environmental Costs': '環境対策費 (Environmental Costs)',
+        'Bad Debt Expense': '貸倒損失 (Bad Debt Expense)',
+        'Warranty Expense': '製品保証費 (Warranty Expense)',
+        'Royalty Expense': 'ロイヤリティ費用 (Royalty Expense)',
+        'Royalty Income': 'ロイヤリティ収入 (Royalty Income)',
+        'Commission Expense': '手数料費用 (Commission Expense)',
+        'Commission Income': '手数料収入 (Commission Income)',
+        'Lease Expense': 'リース費用 (Lease Expense)',
+        'Lease Income': 'リース収入 (Lease Income)',
+        'Dividend Income': '配当金収入 (Dividend Income)',
+        'Dividend Expense': '配当金支払 (Dividend Expense)',
+        'Preferred Dividends': '優先株式配当 (Preferred Dividends)',
+        'Other Operating Income': 'その他営業収益 (Other Operating Income)',
+        'Other Operating Expense': 'その他営業費用 (Other Operating Expense)',
+        'Nonoperating Income': '営業外収益 (Nonoperating Income)',
+        'Nonoperating Expense': '営業外費用 (Nonoperating Expense)',
+        'Extraordinary Items': '特別損益 (Extraordinary Items)',
+        'Extraordinary Income': '特別利益 (Extraordinary Income)',
+        'Extraordinary Expense': '特別損失 (Extraordinary Expense)',
+        'Discontinued Operations': '非継続事業 (Discontinued Operations)',
+        'Income From Discontinued Operations': '非継続事業からの利益 (Income From Discontinued Operations)',
+        'Loss From Discontinued Operations': '非継続事業からの損失 (Loss From Discontinued Operations)',
+        'Accounting Change': '会計方針変更 (Accounting Change)',
+        'Other Items': 'その他項目 (Other Items)',
+        'Comprehensive Income': '包括利益 (Comprehensive Income)',
+        'Total Comprehensive Income': '包括利益合計 (Total Comprehensive Income)',
+        'Attributable To Parent': '親会社株主に帰属 (Attributable To Parent)',
+        'Attributable To Noncontrolling Interest': '非支配株主に帰属 (Attributable To Noncontrolling Interest)',
+    }
+
+    # インデックスを翻訳
+    if df is not None and not df.empty:
+        df_copy = df.copy()
+        new_index = []
+        for idx in df_copy.index:
+            if idx in translations:
+                new_index.append(translations[idx])
+            else:
+                # 翻訳がない場合は元の名前をそのまま使用
+                new_index.append(idx)
+        df_copy.index = new_index
+        return df_copy
+    return df
+
 def screen_stocks(stocks, conditions):
     """条件に基づいて銘柄をスクリーニング"""
     results = []
@@ -397,6 +695,12 @@ if mode == "個別銘柄分析" and run_analysis:
 
     with st.spinner("データを取得中..."):
         hist, info, financials, balance_sheet, cashflow, dividends = get_stock_data(ticker, start_date, end_date)
+
+        # 四半期データも取得
+        stock = yf.Ticker(ticker)
+        quarterly_financials = stock.quarterly_financials
+        quarterly_balance_sheet = stock.quarterly_balance_sheet
+        quarterly_cashflow = stock.quarterly_cashflow
     
     if hist is not None and not hist.empty:
         # 基本情報の表示
@@ -512,37 +816,81 @@ if mode == "個別銘柄分析" and run_analysis:
         # 財務諸表の詳細表示
         st.header("📈 財務諸表")
 
+        # 年次・四半期の選択
+        financial_period = st.radio(
+            "表示期間を選択",
+            ["年次データ（Annual）", "四半期データ（Quarterly）"],
+            horizontal=True,
+            help="年次データは通常4年分、四半期データは通常4四半期～16四半期分のデータが表示されます"
+        )
+
+        # 選択に応じてデータを切り替え
+        if financial_period == "年次データ（Annual）":
+            display_financials = financials
+            display_balance_sheet = balance_sheet
+            display_cashflow = cashflow
+            period_label = "年次"
+        else:
+            display_financials = quarterly_financials
+            display_balance_sheet = quarterly_balance_sheet
+            display_cashflow = quarterly_cashflow
+            period_label = "四半期"
+
         tab1, tab2, tab3 = st.tabs(["損益計算書", "貸借対照表", "キャッシュフロー"])
 
         with tab1:
-            st.subheader("損益計算書（Income Statement）")
-            if financials is not None and not financials.empty:
+            st.subheader(f"損益計算書（Income Statement） - {period_label}")
+            if display_financials is not None and not display_financials.empty:
+                # データの期間情報を表示
+                if len(display_financials.columns) > 0:
+                    oldest_date = display_financials.columns[-1].strftime('%Y-%m-%d')
+                    newest_date = display_financials.columns[0].strftime('%Y-%m-%d')
+                    st.info(f"📅 データ期間: {oldest_date} ～ {newest_date} （{len(display_financials.columns)}期間）")
+
                 # 日本円表示に変換
-                financials_display = financials.copy()
+                financials_display = display_financials.copy()
                 financials_display = financials_display / 1000000  # 百万円単位
                 financials_display = financials_display.round(0)
+                # 項目名を日本語と英語で表示
+                financials_display = translate_financial_terms(financials_display)
                 st.dataframe(financials_display, use_container_width=True)
                 st.caption("単位：百万円")
             else:
                 st.info("損益計算書のデータが取得できませんでした。")
 
         with tab2:
-            st.subheader("貸借対照表（Balance Sheet）")
-            if balance_sheet is not None and not balance_sheet.empty:
-                balance_sheet_display = balance_sheet.copy()
+            st.subheader(f"貸借対照表（Balance Sheet） - {period_label}")
+            if display_balance_sheet is not None and not display_balance_sheet.empty:
+                # データの期間情報を表示
+                if len(display_balance_sheet.columns) > 0:
+                    oldest_date = display_balance_sheet.columns[-1].strftime('%Y-%m-%d')
+                    newest_date = display_balance_sheet.columns[0].strftime('%Y-%m-%d')
+                    st.info(f"📅 データ期間: {oldest_date} ～ {newest_date} （{len(display_balance_sheet.columns)}期間）")
+
+                balance_sheet_display = display_balance_sheet.copy()
                 balance_sheet_display = balance_sheet_display / 1000000  # 百万円単位
                 balance_sheet_display = balance_sheet_display.round(0)
+                # 項目名を日本語と英語で表示
+                balance_sheet_display = translate_financial_terms(balance_sheet_display)
                 st.dataframe(balance_sheet_display, use_container_width=True)
                 st.caption("単位：百万円")
             else:
                 st.info("貸借対照表のデータが取得できませんでした。")
 
         with tab3:
-            st.subheader("キャッシュフロー計算書（Cash Flow）")
-            if cashflow is not None and not cashflow.empty:
-                cashflow_display = cashflow.copy()
+            st.subheader(f"キャッシュフロー計算書（Cash Flow） - {period_label}")
+            if display_cashflow is not None and not display_cashflow.empty:
+                # データの期間情報を表示
+                if len(display_cashflow.columns) > 0:
+                    oldest_date = display_cashflow.columns[-1].strftime('%Y-%m-%d')
+                    newest_date = display_cashflow.columns[0].strftime('%Y-%m-%d')
+                    st.info(f"📅 データ期間: {oldest_date} ～ {newest_date} （{len(display_cashflow.columns)}期間）")
+
+                cashflow_display = display_cashflow.copy()
                 cashflow_display = cashflow_display / 1000000  # 百万円単位
                 cashflow_display = cashflow_display.round(0)
+                # 項目名を日本語と英語で表示
+                cashflow_display = translate_financial_terms(cashflow_display)
                 st.dataframe(cashflow_display, use_container_width=True)
                 st.caption("単位：百万円")
             else:
@@ -755,16 +1103,6 @@ elif mode == "銘柄スクリーニング":
 
             st.write("")
 
-            # デバッグ情報を常に表示
-            st.write("---")
-            st.write("### 🔍 デバッグ情報")
-            st.write(f"**現在のモード**: {st.session_state.get('current_mode', 'N/A')}")
-            st.write(f"**analyze_ticker**: {st.session_state.get('analyze_ticker', 'N/A')}")
-            st.write(f"**switch_to_analysis**: {st.session_state.get('switch_to_analysis', False)}")
-            st.write(f"**auto_run_completed**: {st.session_state.get('auto_run_completed', False)}")
-            st.write(f"**選択された銘柄**: {selected_ticker}")
-            st.write("---")
-
             if st.button("📊 選択した銘柄の詳細分析を開く", key="detail_analysis_btn", type="primary", use_container_width=True):
                 # セッション状態を更新
                 st.session_state['analyze_ticker'] = selected_ticker
@@ -772,19 +1110,8 @@ elif mode == "銘柄スクリーニング":
                 st.session_state['auto_run_completed'] = False
                 st.session_state['current_mode'] = "個別銘柄分析"
                 st.session_state['last_ticker'] = None
-
-                # 更新後の状態を表示
-                st.success(f"✅ セッション状態を更新しました: {selected_ticker}")
-                st.write("更新後のセッション状態:")
-                st.write("- analyze_ticker:", st.session_state['analyze_ticker'])
-                st.write("- switch_to_analysis:", st.session_state['switch_to_analysis'])
-                st.write("- current_mode:", st.session_state['current_mode'])
-                st.write("ページを再読み込みします...")
-
                 # ページを再読み込み
                 st.rerun()
-
-            st.info("💡 ボタンが機能しない場合: サイドバーで「個別銘柄分析」を手動で選択し、銘柄コード欄に上記の銘柄コードを入力してください")
         else:
             st.warning("条件に合致する銘柄が見つかりませんでした。条件を緩和してみてください。")
 
