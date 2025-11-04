@@ -54,12 +54,19 @@ class EDINETAPI:
             'type': doc_type,
             'Subscription-Key': self.api_key
         }
-        
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            return response.content
-        else:
-            st.error(f"書類取得エラー: {response.status_code}")
+
+        try:
+            response = requests.get(url, params=params, timeout=60)
+            if response.status_code == 200:
+                return response.content
+            else:
+                st.error(f"書類取得エラー (docID: {doc_id}): {response.status_code}")
+                return None
+        except requests.exceptions.Timeout:
+            st.error(f"書類取得タイムアウト (docID: {doc_id})")
+            return None
+        except Exception as e:
+            st.error(f"書類取得エラー (docID: {doc_id}): {str(e)}")
             return None
     
     def extract_xbrl_data(self, zip_content):
@@ -119,8 +126,8 @@ def get_financial_statements(edinet_api, company_code, years=5):
         # 対象企業の書類をフィルタリング
         company_docs = []
         for doc in documents.get('results', []):
-            sec_code = doc.get('secCode', '').replace(' ', '')
-            edinet_code = doc.get('edinetCode', '')
+            sec_code = (doc.get('secCode') or '').replace(' ', '')
+            edinet_code = doc.get('edinetCode') or ''
             target_code = company_code.replace('.T', '').replace(' ', '')
 
             if (sec_code == target_code or edinet_code == target_code):
