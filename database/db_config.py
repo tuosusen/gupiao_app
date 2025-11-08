@@ -111,6 +111,9 @@ class DatabaseManager:
 
     def execute_many(self, query, data_list):
         """複数レコードを一括挿入"""
+        if not data_list or len(data_list) == 0:
+            return 0
+
         connection = self.config.get_connection()
         if not connection:
             return False
@@ -125,7 +128,10 @@ class DatabaseManager:
             return affected_rows
 
         except Error as e:
+            # エラーの詳細を表示（最初の数件のみ）
             st.error(f"❌ 一括挿入エラー: {e}")
+            st.error(f"クエリ: {query[:100]}...")
+            st.error(f"データサンプル: {data_list[0] if data_list else 'なし'}")
             if connection:
                 connection.rollback()
                 connection.close()

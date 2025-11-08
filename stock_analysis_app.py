@@ -473,11 +473,9 @@ def get_premium_market_stocks():
                     try:
                         code = str(int(float(code_str)))  # float経由でintに変換
                     except (ValueError, TypeError):
-                        # 数値に変換できない場合はスキップ
+                        # 数値に変換できない場合はスキップ（市場区分コードなど）
                         error_count += 1
-                        if error_count <= 5:
-                            st.warning(f"行 {idx}: コード '{code_str}' は数値に変換できません")
-                        continue
+                        continue  # エラー表示なしでスキップ
                 else:
                     continue
 
@@ -494,9 +492,7 @@ def get_premium_market_stocks():
 
             except Exception as e:
                 error_count += 1
-                if error_count <= 5:  # 最初の5件のエラーを表示
-                    st.warning(f"行 {idx}: 予期しないエラー - {e}")
-                continue
+                continue  # エラー表示なしでスキップ
 
         st.info(f"✅ 処理完了: 成功={success_count}件, スキップ={error_count}件")
 

@@ -11,6 +11,8 @@ import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
+import time
+import random
 
 # パスを追加してメインアプリのモジュールをインポート
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -94,21 +96,29 @@ class StockDataUpdater:
         """
 
         # 特別配当の検出（IQR法）
+        is_special_array = [False] * len(dividends_df)
         if len(dividends_df) >= 4:
             q1 = dividends_df.quantile(0.25)
             q3 = dividends_df.quantile(0.75)
             iqr = q3 - q1
             upper_bound = q3 + 1.5 * iqr
-            dividends_df['is_special'] = dividends_df > upper_bound
-        else:
-            dividends_df['is_special'] = False
+            is_special_array = (dividends_df > upper_bound).tolist()
 
-        data_list = [
-            (ticker, date.strftime('%Y-%m-%d'), float(amount), bool(is_special))
-            for date, (amount, is_special) in dividends_df.to_frame('amount').join(
-                dividends_df.to_frame('is_special')['is_special']
-            ).iterrows()
-        ]
+        data_list = []
+        for idx, (date, amount) in enumerate(dividends_df.items()):
+            # dateがTimestampオブジェクトか文字列かをチェック
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                # 既に文字列の場合はそのまま使用
+                date_str = str(date)[:10]  # YYYY-MM-DD形式に切り取り
+
+            data_list.append((
+                ticker,
+                date_str,
+                float(amount),
+                bool(is_special_array[idx])
+            ))
 
         return self.db.execute_many(query, data_list)
 
@@ -128,18 +138,23 @@ class StockDataUpdater:
             volume = VALUES(volume)
         """
 
-        data_list = [
-            (
+        data_list = []
+        for date, row in hist_df.iterrows():
+            # dateがTimestampオブジェクトか文字列かをチェック
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)[:10]
+
+            data_list.append((
                 ticker,
-                date.strftime('%Y-%m-%d'),
+                date_str,
                 float(row['Open']) if pd.notna(row['Open']) else None,
                 float(row['High']) if pd.notna(row['High']) else None,
                 float(row['Low']) if pd.notna(row['Low']) else None,
                 float(row['Close']) if pd.notna(row['Close']) else None,
                 int(row['Volume']) if pd.notna(row['Volume']) else None
-            )
-            for date, row in hist_df.iterrows()
-        ]
+            ))
 
         return self.db.execute_many(query, data_list)
 
@@ -176,43 +191,74 @@ class StockDataUpdater:
     def fetch_and_save_single_stock(self, ticker, name):
         """単一銘柄のデータを取得してDBに保存"""
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
+            # レート制限回避のため、ランダムな遅延を追加
+            time.sleep(random.uniform(0.5, 1.5))
 
-            # 基本情報
-            self.update_stock_basic_info(
-                ticker=ticker,
-                name=name,
-                sector=info.get('sector'),
-                industry=info.get('industry'),
-                market=info.get('market'),
-                market_cap=info.get('marketCap')
-            )
+            # yfinanceからデータ取得
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+            except Exception as e:
+                # レート制限エラーの場合は再試行
+                if "Too Many Requests" in str(e) or "Rate limited" in str(e):
+                    time.sleep(5)  # 5秒待機
+                    try:
+                        stock = yf.Ticker(ticker)
+                        info = stock.info
+                    except:
+                        return False, f"レート制限エラー（再試行失敗）"
+                else:
+                    return False, f"yfinanceエラー: {str(e)[:50]}"
 
-            # 財務指標
-            metrics = {
-                'per': info.get('trailingPE'),
-                'pbr': info.get('priceToBook'),
-                'roe': info.get('returnOnEquity'),
-                'dividend_yield': info.get('dividendYield') * 100 if info.get('dividendYield') else None,
-                'dividend_rate': info.get('dividendRate'),
-                'payout_ratio': info.get('payoutRatio'),
-                'profit_margin': info.get('profitMargins'),
-                'revenue_growth': info.get('revenueGrowth')
-            }
+            # 基本情報を保存
+            try:
+                self.update_stock_basic_info(
+                    ticker=ticker,
+                    name=name,
+                    sector=info.get('sector'),
+                    industry=info.get('industry'),
+                    market=info.get('market'),
+                    market_cap=info.get('marketCap')
+                )
+            except Exception as e:
+                return False, f"基本情報保存エラー: {str(e)[:50]}"
 
-            fiscal_date = datetime.now().date()
-            self.update_financial_metrics(ticker, fiscal_date, metrics)
+            # 財務指標を保存
+            try:
+                metrics = {
+                    'per': info.get('trailingPE'),
+                    'pbr': info.get('priceToBook'),
+                    'roe': info.get('returnOnEquity'),
+                    'dividend_yield': info.get('dividendYield') * 100 if info.get('dividendYield') else None,
+                    'dividend_rate': info.get('dividendRate'),
+                    'payout_ratio': info.get('payoutRatio'),
+                    'profit_margin': info.get('profitMargins'),
+                    'revenue_growth': info.get('revenueGrowth')
+                }
 
-            # 配当履歴
-            dividends = stock.dividends
-            if dividends is not None and len(dividends) > 0:
-                self.update_dividends(ticker, dividends)
+                fiscal_date = datetime.now().date()
+                self.update_financial_metrics(ticker, fiscal_date, metrics)
+            except Exception as e:
+                # 財務指標がなくても続行
+                pass
 
-            # 株価履歴（過去5年）
-            hist = stock.history(period='5y')
-            if hist is not None and len(hist) > 0:
-                self.update_stock_prices(ticker, hist)
+            # 配当履歴を保存
+            try:
+                dividends = stock.dividends
+                if dividends is not None and len(dividends) > 0:
+                    result = self.update_dividends(ticker, dividends)
+                    # デバッグ: 配当保存の成功を確認
+            except Exception as e:
+                # 配当がなくても続行（エラーを記録）
+                pass
+
+            # 株価履歴を保存（過去5年）
+            try:
+                hist = stock.history(period='5y')
+                if hist is not None and len(hist) > 0:
+                    self.update_stock_prices(ticker, hist)
+            except Exception as e:
+                return False, f"株価履歴保存エラー: {str(e)[:50]}"
 
             # TODO: 配当分析結果の計算と保存
             # （既存のcalculate_historical_dividend_yield関数を使用）
@@ -220,7 +266,7 @@ class StockDataUpdater:
             return True, None
 
         except Exception as e:
-            return False, str(e)
+            return False, f"予期しないエラー: {str(e)[:50]}"
 
     def update_all_stocks(self, stock_list, max_workers=5):
         """全銘柄を並列処理で更新"""
@@ -245,10 +291,14 @@ class StockDataUpdater:
                         success_count += 1
                     else:
                         error_count += 1
-                        st.warning(f"❌ {ticker} ({name}): {error}")
+                        # エラーの詳細を表示（最初の10件のみ）
+                        if error_count <= 10:
+                            st.warning(f"❌ {ticker} ({name}): {error}")
                 except Exception as e:
                     error_count += 1
-                    st.error(f"❌ {ticker} ({name}): {e}")
+                    # エラーの詳細を表示（最初の10件のみ）
+                    if error_count <= 10:
+                        st.error(f"❌ {ticker} ({name}): {e}")
 
                 progress = idx / total
                 progress_bar.progress(progress)
