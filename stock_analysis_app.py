@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 from datetime import datetime, timedelta
+import io
+import requests
 
 # Streamlitアプリの設定 - ページ設定を最初に
 st.set_page_config(
@@ -58,24 +60,220 @@ else:
     # スクリーニング条件の設定
     st.sidebar.header("スクリーニング条件")
 
-    # 配当利回り
-    st.sidebar.subheader("配当条件")
-    min_dividend_yield = st.sidebar.number_input("最低配当利回り (%)", min_value=0.0, max_value=20.0, value=2.0, step=0.5)
-    dividend_growth = st.sidebar.checkbox("配当増加傾向", value=False)
-
-    # 業績条件
-    st.sidebar.subheader("業績条件")
-    revenue_growth = st.sidebar.checkbox("売上高増加傾向", value=False)
-    min_profit_margin = st.sidebar.number_input("最低利益率 (%)", min_value=0.0, max_value=100.0, value=5.0, step=1.0)
-
-    # バリュエーション
-    st.sidebar.subheader("バリュエーション")
-    max_per = st.sidebar.number_input("最大PER", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
-    max_pbr = st.sidebar.number_input("最大PBR", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
-
     # 対象市場
     st.sidebar.subheader("対象市場")
-    market = st.sidebar.selectbox("市場を選択", ["日本株（東証主要銘柄）", "米国株（S&P500）"])
+    market = st.sidebar.selectbox(
+        "市場を選択",
+        [
+            "日本株（東証プライム市場全銘柄）",
+            "日本株（東証主要銘柄）",
+            "米国株（S&P500）"
+        ],
+        help="プライム市場全銘柄: 約1,800銘柄（時間がかかります）\n主要銘柄: 約50銘柄（高速）"
+    )
+
+    # 銘柄数の表示
+    if market == "日本株（東証プライム市場全銘柄）":
+        st.sidebar.info("⚠️ 全銘柄スクリーニングには15-30分程度かかる場合があります")
+    elif market == "日本株（東証主要銘柄）":
+        st.sidebar.info("✅ 主要銘柄のみ（高速スクリーニング）")
+
+    # スクリーニングモード選択
+    st.sidebar.subheader("スクリーニングモード")
+    screening_mode = st.sidebar.radio(
+        "モードを選択",
+        ["基本モード", "高度な配当分析", "高度なPER分析", "カスタム条件"],
+        help="基本モード: シンプルな条件でスクリーニング\n高度な配当分析: 過去の配当履歴を考慮\n高度なPER分析: 過去のPER推移を考慮"
+    )
+
+    # 配当条件
+    st.sidebar.subheader("📊 配当条件")
+
+    if screening_mode in ["基本モード", "カスタム条件"]:
+        use_basic_dividend = st.sidebar.checkbox("基本的な配当利回り条件を使用", value=True)
+        if use_basic_dividend:
+            min_dividend_yield = st.sidebar.number_input("最低配当利回り (%)", min_value=0.0, max_value=20.0, value=2.0, step=0.5)
+        else:
+            min_dividend_yield = 0.0
+        dividend_growth = st.sidebar.checkbox("配当増加傾向", value=False)
+    else:
+        use_basic_dividend = False
+        min_dividend_yield = 0.0
+        dividend_growth = False
+
+    # 高度な配当条件
+    if screening_mode in ["高度な配当分析", "カスタム条件"]:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🔍 高度な配当分析**")
+
+        use_advanced_dividend = st.sidebar.checkbox("高度な配当分析を使用", value=True if screening_mode == "高度な配当分析" else False)
+
+        if use_advanced_dividend:
+            dividend_years = st.sidebar.selectbox("分析期間", [3, 4, 5], index=1, help="過去何年分のデータを分析するか")
+
+            # プリセット条件
+            dividend_preset = st.sidebar.selectbox(
+                "プリセット条件",
+                ["カスタム", "安定高配当株", "減配だが過去高配当"],
+                help="カスタム: 自分で設定\n安定高配当株: 過去平均3.5%以上で変動が小さい\n減配だが過去高配当: 今期減配だが過去5年平均4%以上"
+            )
+
+            if dividend_preset == "安定高配当株":
+                min_avg_dividend_yield = 3.5
+                max_dividend_cv = 0.3
+                declining_but_high_avg = False
+                require_increasing_trend = False
+                exclude_special_dividend = True
+                min_dividend_quality_score = 60
+            elif dividend_preset == "減配だが過去高配当":
+                min_avg_dividend_yield = 4.0
+                max_dividend_cv = None
+                declining_but_high_avg = True
+                require_increasing_trend = False
+                exclude_special_dividend = False
+                min_dividend_quality_score = None
+            else:  # カスタム
+                min_avg_dividend_yield = st.sidebar.number_input(
+                    f"過去{dividend_years}年平均配当利回り (%) 以上",
+                    min_value=0.0, max_value=20.0, value=3.5, step=0.5
+                )
+
+                use_cv = st.sidebar.checkbox("配当の安定性条件を使用", value=True, help="変動係数が小さい = 安定している")
+                if use_cv:
+                    max_dividend_cv = st.sidebar.number_input(
+                        "配当変動係数 (CV) 以下",
+                        min_value=0.0, max_value=2.0, value=0.3, step=0.1,
+                        help="0.3以下が安定、0.5以上は不安定"
+                    )
+                else:
+                    max_dividend_cv = None
+
+                declining_but_high_avg = st.sidebar.checkbox(
+                    "減配だが過去平均が高い銘柄を抽出",
+                    value=False,
+                    help="今期は減配だが、過去平均配当利回りが高い銘柄"
+                )
+
+                st.sidebar.markdown("**配当トレンド・特別配当**")
+
+                require_increasing_trend = st.sidebar.checkbox(
+                    "増配傾向の銘柄のみ",
+                    value=False,
+                    help="配当が増加傾向にある銘柄のみを抽出（減配傾向を除外）"
+                )
+
+                exclude_special_dividend = st.sidebar.checkbox(
+                    "特別配当を除外",
+                    value=True,
+                    help="特別配当があった銘柄を除外（より安定的な配当銘柄を抽出）"
+                )
+
+                use_quality_score = st.sidebar.checkbox(
+                    "配当クオリティスコアを使用",
+                    value=False,
+                    help="配当利回り・安定性・トレンドを総合評価（0-100点）"
+                )
+
+                if use_quality_score:
+                    min_dividend_quality_score = st.sidebar.slider(
+                        "最低配当クオリティスコア",
+                        min_value=0, max_value=100, value=60, step=5,
+                        help="60点以上: 優良、70点以上: 非常に優良"
+                    )
+                else:
+                    min_dividend_quality_score = None
+    else:
+        use_advanced_dividend = False
+        dividend_years = 4
+        min_avg_dividend_yield = None
+        max_dividend_cv = None
+        declining_but_high_avg = False
+        require_increasing_trend = False
+        exclude_special_dividend = False
+        min_dividend_quality_score = None
+
+    # PER条件
+    st.sidebar.subheader("💰 バリュエーション")
+
+    if screening_mode in ["基本モード", "カスタム条件"]:
+        use_basic_per = st.sidebar.checkbox("基本的なPER条件を使用", value=True)
+        if use_basic_per:
+            max_per = st.sidebar.number_input("最大PER", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
+        else:
+            max_per = 100.0
+    else:
+        use_basic_per = False
+        max_per = 100.0
+
+    # 高度なPER条件
+    if screening_mode in ["高度なPER分析", "カスタム条件"]:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🔍 高度なPER分析**")
+
+        use_advanced_per = st.sidebar.checkbox("高度なPER分析を使用", value=True if screening_mode == "高度なPER分析" else False)
+
+        if use_advanced_per:
+            per_years = st.sidebar.selectbox("PER分析期間", [3, 4, 5], index=1, help="過去何年分のPERを分析するか")
+
+            # プリセット条件
+            per_preset = st.sidebar.selectbox(
+                "PERプリセット条件",
+                ["カスタム", "安定低PER", "割安株発掘"],
+                help="カスタム: 自分で設定\n安定低PER: 過去平均PERが低く安定\n割安株発掘: 現在PERが過去平均より大幅に低い"
+            )
+
+            if per_preset == "安定低PER":
+                min_avg_per = None
+                max_avg_per = 15.0
+                max_per_cv = 0.4
+                low_current_high_avg_per = False
+            elif per_preset == "割安株発掘":
+                min_avg_per = None
+                max_avg_per = None
+                max_per_cv = None
+                low_current_high_avg_per = True
+            else:  # カスタム
+                col1, col2 = st.sidebar.columns(2)
+                with col1:
+                    use_min_per = st.checkbox("最小PER", value=False)
+                    if use_min_per:
+                        min_avg_per = st.number_input(f"過去{per_years}年平均PER 以上", min_value=0.0, max_value=100.0, value=5.0, step=1.0)
+                    else:
+                        min_avg_per = None
+
+                with col2:
+                    use_max_per = st.checkbox("最大PER", value=True)
+                    if use_max_per:
+                        max_avg_per = st.number_input(f"過去{per_years}年平均PER 以下", min_value=0.0, max_value=100.0, value=15.0, step=1.0)
+                    else:
+                        max_avg_per = None
+
+                use_per_cv = st.sidebar.checkbox("PER安定性条件を使用", value=False)
+                if use_per_cv:
+                    max_per_cv = st.sidebar.number_input("PER変動係数 (CV) 以下", min_value=0.0, max_value=2.0, value=0.4, step=0.1)
+                else:
+                    max_per_cv = None
+
+                low_current_high_avg_per = st.sidebar.checkbox(
+                    "現在PERが過去平均より大幅に低い（割安）",
+                    value=False,
+                    help="現在PERが過去平均の80%未満の銘柄"
+                )
+    else:
+        use_advanced_per = False
+        per_years = 4
+        min_avg_per = None
+        max_avg_per = None
+        max_per_cv = None
+        low_current_high_avg_per = False
+
+    # その他の条件
+    max_pbr = st.sidebar.number_input("最大PBR", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
+
+    # 業績条件
+    st.sidebar.subheader("📈 業績条件")
+    revenue_growth = st.sidebar.checkbox("売上高増加傾向", value=False)
+    min_profit_margin = st.sidebar.number_input("最低利益率 (%)", min_value=0.0, max_value=100.0, value=5.0, step=1.0)
 
     ticker = None  # スクリーニングモードではtickerは使わない
     start_date = datetime.now() - timedelta(days=365*3)
@@ -158,8 +356,113 @@ def calculate_financial_ratios(info, financials, balance_sheet):
     
     return ratios
 
+@st.cache_data(ttl=86400)  # 24時間キャッシュ
+def get_premium_market_stocks():
+    """東証プレミアム市場の全銘柄を取得"""
+    try:
+        # JPXの上場銘柄一覧をダウンロード（複数のURLとエンジンを試す）
+        urls = [
+            ("https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls", 'xlrd'),
+            ("https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx", 'openpyxl'),
+        ]
+
+        df = None
+        last_error = None
+
+        for url, engine in urls:
+            try:
+                st.info(f"銘柄リストをダウンロード中... ({url.split('/')[-1]})")
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+
+                df = pd.read_excel(io.BytesIO(response.content), engine=engine)
+                st.success(f"✅ ダウンロード成功")
+                break  # 成功したらループを抜ける
+
+            except Exception as e:
+                last_error = e
+                continue
+
+        if df is None:
+            raise Exception(f"全てのURLで取得失敗: {last_error}")
+
+        # 列名を確認
+        st.info(f"取得した列: {df.columns.tolist()}")
+
+        # プレミアム市場のみをフィルタ
+        market_col = None
+        for col in df.columns:
+            if '市場' in str(col) or 'market' in str(col).lower() or '商品区分' in str(col):
+                market_col = col
+                break
+
+        if market_col:
+            # 実際のデータを確認（デバッグ）
+            unique_values = df[market_col].dropna().unique()
+            st.info(f"市場区分列 '{market_col}' の値の例: {unique_values[:5].tolist()}")
+
+            # プライム市場でフィルタ（正式名称は「プライム」）
+            premium_df = df[df[market_col].astype(str).str.contains('プライム|Prime', na=False, case=False)]
+            st.info(f"プライム市場の銘柄: {len(premium_df)}件")
+
+            # フィルタで0件の場合、全銘柄を使用
+            if len(premium_df) == 0:
+                st.warning("⚠️ プレミアム市場のフィルタで0件。全銘柄を使用します。")
+                premium_df = df
+        else:
+            st.warning("⚠️ 市場区分列が見つかりません。全銘柄を使用します。")
+            premium_df = df
+
+        # 銘柄辞書を作成（コード: 銘柄名）
+        stocks = {}
+
+        # コード列と銘柄名列を探す
+        code_col = None
+        name_col = None
+
+        for col in df.columns:
+            col_str = str(col)
+            if 'コード' in col_str or 'code' in col_str.lower():
+                code_col = col
+            if '銘柄名' in col_str or 'name' in col_str.lower() or '名称' in col_str:
+                name_col = col
+
+        if code_col is None or name_col is None:
+            raise Exception(f"必要な列が見つかりません。利用可能な列: {df.columns.tolist()}")
+
+        for _, row in premium_df.iterrows():
+            try:
+                code = str(int(row[code_col])) if pd.notna(row[code_col]) else None
+                name = str(row[name_col]) if pd.notna(row[name_col]) else None
+
+                if code and name:
+                    # yfinance用に.Tを追加
+                    ticker = f"{code}.T"
+                    stocks[ticker] = name
+            except:
+                continue
+
+        if len(stocks) == 0:
+            raise Exception("銘柄が取得できませんでした")
+
+        st.success(f"✅ プレミアム市場の銘柄を{len(stocks)}件取得しました")
+        return stocks
+
+    except Exception as e:
+        st.error(f"❌ プレミアム市場の銘柄リスト取得に失敗: {e}")
+        st.info("💡 主要銘柄のリストを使用します")
+        return None
+
 def get_stock_list(market):
     """市場に応じた銘柄リストを取得"""
+    if market == "日本株（東証プライム市場全銘柄）":
+        # プレミアム市場全銘柄を取得
+        premium_stocks = get_premium_market_stocks()
+        if premium_stocks:
+            return premium_stocks
+        # 取得失敗時は主要銘柄にフォールバック
+        market = "日本株（東証主要銘柄）"
+
     if market == "日本株（東証主要銘柄）":
         # 日本の主要銘柄（TOPIX100の主要銘柄）
         stocks = {
@@ -597,6 +900,230 @@ def translate_financial_terms(df):
         return df_copy
     return df
 
+def calculate_historical_dividend_yield(ticker_obj, dividends, hist_prices, years=5):
+    """過去N年の配当利回りを計算（トレンド分析と特別配当検出付き）"""
+    try:
+        if dividends is None or len(dividends) == 0 or hist_prices is None or len(hist_prices) == 0:
+            return None, None, None, None, None
+
+        # 過去N年分のデータを取得
+        cutoff_date = datetime.now() - timedelta(days=365 * years)
+        recent_dividends = dividends[dividends.index >= cutoff_date]
+
+        if len(recent_dividends) == 0:
+            return None, None, None, None, None
+
+        # 年次配当利回りを計算
+        yearly_yields = []
+        for year in range(years):
+            year_start = datetime.now() - timedelta(days=365 * (year + 1))
+            year_end = datetime.now() - timedelta(days=365 * year)
+
+            # その年の配当合計
+            year_divs = recent_dividends[(recent_dividends.index >= year_start) & (recent_dividends.index < year_end)]
+            if len(year_divs) == 0:
+                continue
+
+            total_div = year_divs.sum()
+
+            # その年の平均株価（年初の価格を使用）
+            year_prices = hist_prices[(hist_prices.index >= year_start) & (hist_prices.index < year_end)]
+            if len(year_prices) == 0:
+                continue
+
+            avg_price = year_prices['Close'].iloc[0] if len(year_prices) > 0 else None
+            if avg_price and avg_price > 0:
+                yield_pct = (total_div / avg_price) * 100
+                yearly_yields.append(yield_pct)
+
+        if len(yearly_yields) == 0:
+            return None, None, None, None, None
+
+        # データを新しい順から古い順に並べ替え（時系列分析用）
+        yearly_yields.reverse()
+
+        # 特別配当の検出と除外
+        # IQR（四分位範囲）法で外れ値を検出
+        if len(yearly_yields) >= 4:
+            q1 = pd.Series(yearly_yields).quantile(0.25)
+            q3 = pd.Series(yearly_yields).quantile(0.75)
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+
+            # 外れ値（特別配当の可能性）を除外
+            filtered_yields = [y for y in yearly_yields if lower_bound <= y <= upper_bound]
+            has_special_dividend = len(filtered_yields) < len(yearly_yields)
+        else:
+            filtered_yields = yearly_yields
+            has_special_dividend = False
+
+        # フィルタ後のデータで再計算
+        if len(filtered_yields) == 0:
+            filtered_yields = yearly_yields  # 全て外れ値の場合は元データを使用
+
+        # 平均配当利回り（特別配当除外後）
+        avg_yield = sum(filtered_yields) / len(filtered_yields)
+
+        # 配当の変動係数（CV = 標準偏差 / 平均）
+        if len(filtered_yields) >= 2:
+            std_dev = pd.Series(filtered_yields).std()
+            cv = (std_dev / avg_yield) if avg_yield > 0 else float('inf')
+        else:
+            cv = 0
+
+        # 配当トレンド分析（線形回帰の傾き）
+        if len(filtered_yields) >= 3:
+            # x = 年数（0, 1, 2, ...）、y = 配当利回り
+            x = list(range(len(filtered_yields)))
+            y = filtered_yields
+
+            # 線形回帰: y = ax + b
+            n = len(x)
+            sum_x = sum(x)
+            sum_y = sum(y)
+            sum_xy = sum(x[i] * y[i] for i in range(n))
+            sum_x2 = sum(xi ** 2 for xi in x)
+
+            # 傾き a = (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
+            denominator = (n * sum_x2 - sum_x ** 2)
+            if denominator != 0:
+                slope = (n * sum_xy - sum_x * sum_y) / denominator
+                dividend_trend = slope  # 正なら増配傾向、負なら減配傾向
+            else:
+                dividend_trend = 0
+        else:
+            dividend_trend = 0
+
+        # 最新年の配当利回り
+        current_yield = yearly_yields[-1] if len(yearly_yields) > 0 else None
+
+        return avg_yield, cv, current_yield, dividend_trend, has_special_dividend
+
+    except Exception as e:
+        return None, None, None, None, None
+
+def calculate_dividend_quality_score(avg_yield, cv, trend, has_special_div):
+    """配当の質を総合的にスコアリング（0-100点）"""
+    try:
+        if avg_yield is None or cv is None or trend is None:
+            return None
+
+        score = 0
+
+        # 1. 配当利回り（最大40点）
+        if avg_yield >= 5.0:
+            score += 40
+        elif avg_yield >= 4.0:
+            score += 35
+        elif avg_yield >= 3.0:
+            score += 30
+        elif avg_yield >= 2.0:
+            score += 20
+        else:
+            score += 10
+
+        # 2. 安定性（最大30点）
+        if cv <= 0.15:
+            score += 30  # 非常に安定
+        elif cv <= 0.25:
+            score += 25  # 安定
+        elif cv <= 0.35:
+            score += 20  # やや安定
+        elif cv <= 0.50:
+            score += 10  # 中程度
+        else:
+            score += 0   # 不安定
+
+        # 3. トレンド（最大30点）
+        if trend > 0.3:
+            score += 30  # 強い増配傾向
+        elif trend > 0.15:
+            score += 25  # 増配傾向
+        elif trend > 0:
+            score += 20  # 緩やかな増配
+        elif trend > -0.15:
+            score += 10  # 横ばい
+        else:
+            score += 0   # 減配傾向
+
+        # 4. 特別配当ペナルティ（-10点）
+        if has_special_div:
+            score -= 10
+
+        # スコアを0-100の範囲に収める
+        score = max(0, min(100, score))
+
+        return score
+
+    except Exception:
+        return None
+
+def calculate_historical_per(ticker_obj, years=5):
+    """過去N年のPERを計算"""
+    try:
+        # 過去の株価データを取得
+        hist = ticker_obj.history(period=f"{years}y")
+        if hist is None or len(hist) == 0:
+            return None, None, None
+
+        # 財務データを取得
+        financials = ticker_obj.financials
+        if financials is None or len(financials.columns) == 0:
+            return None, None, None
+
+        # 年次PERを計算
+        yearly_pers = []
+
+        for i in range(min(years, len(financials.columns))):
+            try:
+                # その年の純利益
+                net_income = financials.loc['Net Income', financials.columns[i]]
+
+                # その年の株価（年初）
+                fin_date = financials.columns[i]
+                closest_price = hist[hist.index >= fin_date]['Close'].iloc[0] if len(hist[hist.index >= fin_date]) > 0 else None
+
+                if closest_price is None or net_income <= 0:
+                    continue
+
+                # 発行済株式数
+                shares = ticker_obj.info.get('sharesOutstanding', None)
+                if shares is None or shares <= 0:
+                    continue
+
+                # EPS = 純利益 / 発行済株式数
+                eps = net_income / shares
+
+                # PER = 株価 / EPS
+                if eps > 0:
+                    per = closest_price / eps
+                    yearly_pers.append(per)
+
+            except Exception:
+                continue
+
+        if len(yearly_pers) == 0:
+            return None, None, None
+
+        # 平均PER
+        avg_per = sum(yearly_pers) / len(yearly_pers)
+
+        # PERの変動係数
+        if len(yearly_pers) >= 2:
+            std_dev = pd.Series(yearly_pers).std()
+            cv = (std_dev / avg_per) if avg_per > 0 else float('inf')
+        else:
+            cv = 0
+
+        # 最新のPER
+        current_per = yearly_pers[0] if len(yearly_pers) > 0 else None
+
+        return avg_per, cv, current_per
+
+    except Exception as e:
+        return None, None, None
+
 def screen_stocks(stocks, conditions):
     """条件に基づいて銘柄をスクリーニング"""
     results = []
@@ -613,7 +1140,7 @@ def screen_stocks(stocks, conditions):
             stock = yf.Ticker(ticker)
             info = stock.info
 
-            # データ取得
+            # 基本データ取得
             dividend_yield = info.get('dividendYield', 0)
             if dividend_yield and dividend_yield < 1:
                 dividend_yield = dividend_yield * 100
@@ -637,37 +1164,139 @@ def screen_stocks(stocks, conditions):
                 recent_div = dividends[-5:] if len(dividends) >= 5 else dividends
                 dividend_increasing = all(recent_div.iloc[i] <= recent_div.iloc[i+1] for i in range(len(recent_div)-1))
 
+            # 高度な配当分析
+            hist_prices = stock.history(period="5y")
+            avg_div_yield, div_cv, current_div_yield, div_trend, has_special_div = calculate_historical_dividend_yield(
+                stock, dividends, hist_prices, years=conditions.get('dividend_years', 4)
+            )
+
+            # 配当クオリティスコア
+            div_quality_score = calculate_dividend_quality_score(avg_div_yield, div_cv, div_trend, has_special_div)
+
+            # 高度なPER分析
+            avg_per, per_cv, current_per = calculate_historical_per(stock, years=conditions.get('per_years', 4))
+
             # 条件チェック
             passes = True
 
-            if dividend_yield < conditions['min_dividend_yield']:
+            # 基本的な配当利回り条件
+            if conditions.get('use_basic_dividend', True):
+                if dividend_yield < conditions.get('min_dividend_yield', 0):
+                    passes = False
+
+            # 高度な配当条件
+            if conditions.get('use_advanced_dividend', False):
+                # 過去N年平均配当利回り条件
+                if conditions.get('min_avg_dividend_yield', None) is not None:
+                    if avg_div_yield is None or avg_div_yield < conditions['min_avg_dividend_yield']:
+                        passes = False
+
+                # 配当の安定性条件（変動係数が小さい）
+                if conditions.get('max_dividend_cv', None) is not None:
+                    if div_cv is None or div_cv > conditions['max_dividend_cv']:
+                        passes = False
+
+                # 配当トレンド条件（増配傾向）
+                if conditions.get('require_increasing_trend', False):
+                    if div_trend is None or div_trend <= 0:
+                        passes = False
+
+                # 特別配当を除外
+                if conditions.get('exclude_special_dividend', False):
+                    if has_special_div:
+                        passes = False
+
+                # 配当クオリティスコア条件
+                if conditions.get('min_dividend_quality_score', None) is not None:
+                    if div_quality_score is None or div_quality_score < conditions['min_dividend_quality_score']:
+                        passes = False
+
+                # 減配だが過去平均が高い条件
+                if conditions.get('declining_but_high_avg', False):
+                    if current_div_yield is None or avg_div_yield is None:
+                        passes = False
+                    elif not (current_div_yield < avg_div_yield and avg_div_yield >= conditions.get('min_avg_dividend_yield', 4.0)):
+                        passes = False
+
+            # 高度なPER条件
+            if conditions.get('use_advanced_per', False):
+                # 過去N年平均PER条件
+                if conditions.get('min_avg_per', None) is not None:
+                    if avg_per is None or avg_per < conditions['min_avg_per']:
+                        passes = False
+
+                if conditions.get('max_avg_per', None) is not None:
+                    if avg_per is None or avg_per > conditions['max_avg_per']:
+                        passes = False
+
+                # PERの安定性条件
+                if conditions.get('max_per_cv', None) is not None:
+                    if per_cv is None or per_cv > conditions['max_per_cv']:
+                        passes = False
+
+                # 現在PERが低いが過去平均は高い（バリュー株発掘）
+                if conditions.get('low_current_high_avg_per', False):
+                    if current_per is None or avg_per is None:
+                        passes = False
+                    elif not (current_per < avg_per * 0.8):  # 現在PERが過去平均の80%未満
+                        passes = False
+
+            # 基本的な条件
+            if conditions.get('dividend_growth', False) and not dividend_increasing:
                 passes = False
 
-            if conditions['dividend_growth'] and not dividend_increasing:
+            if conditions.get('revenue_growth', False) and revenue_growth_rate <= 0:
                 passes = False
 
-            if conditions['revenue_growth'] and revenue_growth_rate <= 0:
+            if profit_margin < conditions.get('min_profit_margin', 0):
                 passes = False
 
-            if profit_margin < conditions['min_profit_margin']:
-                passes = False
+            if conditions.get('use_basic_per', True):
+                if per > conditions.get('max_per', 100) and per > 0:
+                    passes = False
 
-            if per > conditions['max_per'] and per > 0:
-                passes = False
-
-            if pbr > conditions['max_pbr'] and pbr > 0:
+            if pbr > conditions.get('max_pbr', 100) and pbr > 0:
                 passes = False
 
             if passes:
-                results.append({
+                result_row = {
                     '銘柄コード': ticker,
                     '銘柄名': name,
-                    '配当利回り': f"{dividend_yield:.2f}%",
+                    '配当利回り': f"{dividend_yield:.2f}%" if dividend_yield > 0 else "N/A",
                     'PER': f"{per:.2f}" if per > 0 else "N/A",
                     'PBR': f"{pbr:.2f}" if pbr > 0 else "N/A",
                     '利益率': f"{profit_margin:.2f}%",
                     '売上成長率': f"{revenue_growth_rate:.2f}%",
-                })
+                }
+
+                # 高度な配当情報を追加
+                if conditions.get('use_advanced_dividend', False):
+                    result_row['過去平均配当利回り'] = f"{avg_div_yield:.2f}%" if avg_div_yield else "N/A"
+                    result_row['配当安定性(CV)'] = f"{div_cv:.2f}" if div_cv is not None else "N/A"
+
+                    # トレンド表示
+                    if div_trend is not None:
+                        if div_trend > 0.3:
+                            trend_str = f"↑↑ {div_trend:.2f}"
+                        elif div_trend > 0:
+                            trend_str = f"↑ {div_trend:.2f}"
+                        elif div_trend > -0.15:
+                            trend_str = f"→ {div_trend:.2f}"
+                        else:
+                            trend_str = f"↓ {div_trend:.2f}"
+                        result_row['配当トレンド'] = trend_str
+                    else:
+                        result_row['配当トレンド'] = "N/A"
+
+                    result_row['配当クオリティ'] = f"{div_quality_score:.0f}点" if div_quality_score else "N/A"
+                    result_row['特別配当'] = "あり" if has_special_div else "なし"
+
+                # 高度なPER情報を追加
+                if conditions.get('use_advanced_per', False):
+                    result_row['過去平均PER'] = f"{avg_per:.2f}" if avg_per else "N/A"
+                    result_row['PER安定性'] = f"{per_cv:.2f}" if per_cv is not None else "N/A"
+
+                results.append(result_row)
 
         except Exception as e:
             continue
@@ -1024,12 +1653,31 @@ elif mode == "銘柄スクリーニング":
     if st.button("スクリーニング実行", type="primary"):
         # 条件を辞書にまとめる
         conditions = {
+            # 基本条件
+            'use_basic_dividend': use_basic_dividend if 'use_basic_dividend' in locals() else True,
             'min_dividend_yield': min_dividend_yield,
             'dividend_growth': dividend_growth,
             'revenue_growth': revenue_growth,
             'min_profit_margin': min_profit_margin,
+            'use_basic_per': use_basic_per if 'use_basic_per' in locals() else True,
             'max_per': max_per,
             'max_pbr': max_pbr,
+            # 高度な配当条件
+            'use_advanced_dividend': use_advanced_dividend if 'use_advanced_dividend' in locals() else False,
+            'dividend_years': dividend_years if 'dividend_years' in locals() else 4,
+            'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() else None,
+            'max_dividend_cv': max_dividend_cv if 'max_dividend_cv' in locals() else None,
+            'declining_but_high_avg': declining_but_high_avg if 'declining_but_high_avg' in locals() else False,
+            'require_increasing_trend': require_increasing_trend if 'require_increasing_trend' in locals() else False,
+            'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
+            'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() else None,
+            # 高度なPER条件
+            'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
+            'per_years': per_years if 'per_years' in locals() else 4,
+            'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
+            'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
+            'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
+            'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False,
         }
 
         # スクリーニング実行

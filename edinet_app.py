@@ -102,7 +102,7 @@ class EDINETAPI:
             st.error(f"CSV抽出エラー: {e}")
             return None
 
-def get_financial_statements(edinet_api, company_code, years=5):
+def get_financial_statements(edinet_api, company_code, years=5, doc_types=['120', '140']):
     """
     企業の財務諸表を取得
     """
@@ -130,10 +130,10 @@ def get_financial_statements(edinet_api, company_code, years=5):
             edinet_code = doc.get('edinetCode') or ''
             target_code = company_code.replace('.T', '').replace(' ', '')
 
-            if (sec_code == target_code or edinet_code == target_code):
+            if (sec_code.startswith(target_code) or edinet_code == target_code):
                 # 有価証券報告書や四半期報告書を対象
                 doc_type = doc.get('docTypeCode')
-                if doc_type in ['120', '130', '140', '150']:  # 有価証券報告書、四半期報告書など
+                if doc_type in doc_types:  # 有価証券報告書、四半期報告書など
                     company_docs.append(doc)
                     st.write(f"✓ マッチング: {doc.get('filerName')} ({doc_type})")
 
@@ -229,10 +229,25 @@ def main():
     company_code = company_code.replace('.T', '')  # .Tを除去
     
     years = st.slider("分析年数", 1, 10, 5)
+
+    doc_type_options = {
+        '有価証券報告書': '120',
+        '訂正有価証券報告書': '130',
+        '四半期報告書': '140',
+        '訂正四半期報告書': '150',
+        '半期報告書': '160',
+        '訂正半期報告書': '170'
+    }
+    selected_doc_types = st.multiselect(
+        "書類の種類を選択",
+        options=list(doc_type_options.keys()),
+        default=['有価証券報告書', '四半期報告書']
+    )
+    selected_doc_type_codes = [doc_type_options[key] for key in selected_doc_types]
     
     if st.button("財務データ取得"):
         with st.spinner("財務データを取得中..."):
-            financial_data = get_financial_statements(edinet_api, company_code, years)
+            financial_data = get_financial_statements(edinet_api, company_code, years, selected_doc_type_codes)
             
             if financial_data:
                 st.success(f"{len(financial_data)}期分の財務データを取得しました")
