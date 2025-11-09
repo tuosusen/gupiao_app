@@ -1708,7 +1708,7 @@ elif mode == "銘柄スクリーニング":
         # データベースからの高速スクリーニング
         st.info("データベース内のデータから検索します。左側のサイドバーで条件を設定してください。")
 
-        if st.button("スクリーニング実行", type="primary"):
+        if st.button("スクリーニング実行", type="primary", key="db_screening_button"):
             # DBスクリーニング用の条件辞書を作成
             db_conditions = {
                 'min_dividend_yield': min_dividend_yield if min_dividend_yield > 0 else None,
@@ -1716,11 +1716,20 @@ elif mode == "銘柄スクリーニング":
                 'max_pbr': max_pbr if max_pbr < 10 else None,
                 'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
                 'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
-                'market': 'プライム' if market == "全銘柄" else None
+                'market': 'プライム' if market == "全銘柄" else None,
+                'min_profit_margin': (min_profit_margin / 100.0) if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
+                'revenue_growth': revenue_growth if 'revenue_growth' in locals() and revenue_growth else False,
+                'dividend_growth': dividend_growth if 'dividend_growth' in locals() and dividend_growth else False
             }
 
             with st.spinner("データベースから検索中..."):
                 results = db_manager.get_screening_data(db_conditions)
+
+            # デバッグ情報
+            if results is None:
+                st.error("❌ データベースクエリエラーが発生しました")
+            elif len(results) == 0:
+                st.warning(f"⚠️ 条件に合致する銘柄が見つかりませんでした。条件: {db_conditions}")
 
             if results:
                 # 結果をDataFrameに変換
@@ -1752,46 +1761,46 @@ elif mode == "銘柄スクリーニング":
         # 従来のリアルタイムスクリーニング
         st.info("yfinanceからリアルタイムでデータを取得します。左側のサイドバーで条件を設定してください。")
 
-    if st.button("スクリーニング実行", type="primary"):
-        # 条件を辞書にまとめる
-        conditions = {
-            # 基本条件
-            'use_basic_dividend': use_basic_dividend if 'use_basic_dividend' in locals() else True,
-            'min_dividend_yield': min_dividend_yield,
-            'dividend_growth': dividend_growth,
-            'revenue_growth': revenue_growth,
-            'min_profit_margin': min_profit_margin,
-            'use_basic_per': use_basic_per if 'use_basic_per' in locals() else True,
-            'max_per': max_per,
-            'max_pbr': max_pbr,
-            # 高度な配当条件
-            'use_advanced_dividend': use_advanced_dividend if 'use_advanced_dividend' in locals() else False,
-            'dividend_years': dividend_years if 'dividend_years' in locals() else 4,
-            'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() else None,
-            'max_dividend_cv': max_dividend_cv if 'max_dividend_cv' in locals() else None,
-            'declining_but_high_avg': declining_but_high_avg if 'declining_but_high_avg' in locals() else False,
-            'require_increasing_trend': require_increasing_trend if 'require_increasing_trend' in locals() else False,
-            'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
-            'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() else None,
-            # 高度なPER条件
-            'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
-            'per_years': per_years if 'per_years' in locals() else 4,
-            'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
-            'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
-            'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
-            'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False,
-        }
+        if st.button("スクリーニング実行", type="primary", key="realtime_screening_button"):
+            # 条件を辞書にまとめる
+            conditions = {
+                # 基本条件
+                'use_basic_dividend': use_basic_dividend if 'use_basic_dividend' in locals() else True,
+                'min_dividend_yield': min_dividend_yield,
+                'dividend_growth': dividend_growth,
+                'revenue_growth': revenue_growth,
+                'min_profit_margin': min_profit_margin,
+                'use_basic_per': use_basic_per if 'use_basic_per' in locals() else True,
+                'max_per': max_per,
+                'max_pbr': max_pbr,
+                # 高度な配当条件
+                'use_advanced_dividend': use_advanced_dividend if 'use_advanced_dividend' in locals() else False,
+                'dividend_years': dividend_years if 'dividend_years' in locals() else 4,
+                'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() else None,
+                'max_dividend_cv': max_dividend_cv if 'max_dividend_cv' in locals() else None,
+                'declining_but_high_avg': declining_but_high_avg if 'declining_but_high_avg' in locals() else False,
+                'require_increasing_trend': require_increasing_trend if 'require_increasing_trend' in locals() else False,
+                'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
+                'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() else None,
+                # 高度なPER条件
+                'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
+                'per_years': per_years if 'per_years' in locals() else 4,
+                'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
+                'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
+                'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
+                'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False,
+            }
 
-        # スクリーニング実行
-        stocks = get_stock_list(market)
+            # スクリーニング実行
+            stocks = get_stock_list(market)
 
-        with st.spinner("スクリーニング実行中..."):
-            results_df = screen_stocks(stocks, conditions)
+            with st.spinner("スクリーニング実行中..."):
+                results_df = screen_stocks(stocks, conditions)
 
-        # 結果をセッション状態に保存
-        st.session_state['screening_results'] = results_df
-        st.session_state['screening_conditions'] = conditions
-        st.session_state['screening_market'] = market
+            # 結果をセッション状態に保存
+            st.session_state['screening_results'] = results_df
+            st.session_state['screening_conditions'] = conditions
+            st.session_state['screening_market'] = market
 
     # スクリーニング結果が保存されている場合は表示
     if 'screening_results' in st.session_state and st.session_state['screening_results'] is not None:
@@ -1822,7 +1831,9 @@ elif mode == "銘柄スクリーニング":
         with col2:
             st.write("**業績・バリュエーション**")
             min_profit = conditions.get('min_profit_margin')
-            st.write(f"- 最低利益率: {min_profit if min_profit else 'N/A'}%以上")
+            # データベースでは小数形式（0.05）で保存されているので、表示時は100倍してパーセント表示
+            min_profit_display = (min_profit * 100) if min_profit else None
+            st.write(f"- 最低利益率: {min_profit_display if min_profit_display else 'N/A'}%以上")
 
             if conditions.get('revenue_growth', False):
                 st.write(f"- 売上高増加傾向: 有効")
