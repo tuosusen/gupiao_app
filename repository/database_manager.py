@@ -1,0 +1,168 @@
+"""
+データベース接続管理
+MySQL接続とクエリ実行を管理
+"""
+
+import mysql.connector
+from mysql.connector import Error
+import streamlit as st
+from typing import List, Dict, Any, Optional, Tuple
+from config import DB_CONFIG
+
+
+class DatabaseManager:
+    """データベース操作を管理するクラス"""
+
+    def __init__(self, config=None):
+        """
+        初期化
+        Args:
+            config: DatabaseConfigインスタンス（デフォルトはDB_CONFIG）
+        """
+        self.config = config or DB_CONFIG
+
+    def get_connection(self):
+        """データベース接続を取得"""
+        try:
+            connection = mysql.connector.connect(
+                host=self.config.host,
+                port=self.config.port,
+                user=self.config.user,
+                password=self.config.password,
+                database=self.config.database,
+                charset=self.config.charset,
+                collation=self.config.collation,
+                autocommit=False
+            )
+            return connection
+        except Error as e:
+            st.error(f"❌ データベース接続エラー: {e}")
+            st.info("💡 環境変数を確認してください: MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE")
+            return None
+
+    def test_connection(self) -> Tuple[bool, str]:
+        """
+        接続テスト
+        Returns:
+            (成功フラグ, メッセージ)
+        """
+        connection = self.get_connection()
+        if connection and connection.is_connected():
+            db_info = connection.get_server_info()
+            cursor = connection.cursor()
+            cursor.execute("SELECT DATABASE();")
+            db_name = cursor.fetchone()[0]
+            cursor.close()
+            connection.close()
+            return True, f"MySQL Server version: {db_info}, Database: {db_name}"
+        return False, "接続失敗"
+
+    def create_database_if_not_exists(self) -> Tuple[bool, str]:
+        """
+        データベースが存在しない場合は作成
+        Returns:
+            (成功フラグ, メッセージ)
+        """
+        try:
+            connection = mysql.connector.connect(
+                host=self.config.host,
+                port=self.config.port,
+                user=self.config.user,
+                password=self.config.password,
+                charset=self.config.charset
+            )
+            cursor = connection.cursor()
+            cursor.execute(
+                f"CREATE DATABASE IF NOT EXISTS {self.config.database} "
+                f"CHARACTER SET {self.config.charset} "
+                f"COLLATE {self.config.collation}"
+            )
+            cursor.execute(f"USE {self.config.database}")
+            cursor.close()
+            connection.close()
+            return True, f"データベース '{self.config.database}' を作成/確認しました"
+        except Error as e:
+            return False, f"データベース作成エラー: {e}"
+
+    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> Optional[List[Dict[str, Any]]]:
+        """
+        クエリを実行
+        Args:
+            query: SQL文
+            params: パラメータ
+            fetch: 結果を取得するか（SELECT等の場合True、INSERT等の場合False）
+        Returns:
+            結果（辞書のリスト）またはNone
+        """
+        connection = self.get_connection()
+        if not connection:
+            return None
+
+        try:
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute(query, params or ())
+
+            if fetch:
+                result = cursor.fetchall()
+            else:
+                connection.commit()
+                result = cursor.rowcount
+
+            cursor.close()
+            connection.close()
+            return result
+
+        except Error as e:
+            st.error(f"❌ クエリ実行エラー: {e}")
+            if connection:
+                connection.rollback()
+                connection.close()
+            return None
+
+    def execute_many(self, query: str, data_list: List[tuple]) -> int:
+        """
+        複数レコードを一括挿入
+        Args:
+            query: SQL文（プレースホルダ付き）
+            data_list: データリスト
+        Returns:
+            影響を受けた行数
+        """
+        if not data_list or len(data_list) == 0:
+            return 0
+
+        connection = self.get_connection()
+        if not connection:
+            return 0
+
+        try:
+            cursor = connection.cursor()
+            cursor.executemany(query, data_list)
+            connection.commit()
+            affected_rows = cursor.rowcount
+            cursor.close()
+            connection.close()
+            return affected_rows
+
+        except Error as e:
+            st.error(f"❌ 一括挿入エラー: {e}")
+            st.error(f"クエリ: {query[:100]}...")
+            st.error(f"データサンプル: {data_list[0] if data_list else 'なし'}")
+            if connection:
+                connection.rollback()
+                connection.close()
+            return 0
+
+    def get_table_stats(self, table_name: str) -> Optional[Dict[str, Any]]:
+        """
+        テーブルの統計情報を取得
+        Args:
+            table_name: テーブル名
+        Returns:
+            統計情報（行数など）
+        """
+        query = f"SELECT COUNT(*) as count FROM {table_name}"
+        result = self.execute_query(query)
+        if result and len(result) > 0:
+            return result[0]
+        return None
