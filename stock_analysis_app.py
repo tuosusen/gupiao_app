@@ -420,12 +420,25 @@ def get_premium_market_stocks():
         code_col = None
         name_col = None
 
+        # すべての列名を表示（デバッグ用）
+        st.write("全ての列名:", df.columns.tolist())
+
         for col in df.columns:
             col_str = str(col)
-            if 'コード' in col_str or 'code' in col_str.lower():
+            # 「コード」で終わる列で、「規模」が含まれていないものを優先
+            if col_str == 'コード' or col_str == '証券コード':
                 code_col = col
+                break  # 見つかったら即座に採用
+            elif 'コード' in col_str and '規模' not in col_str and code_col is None:
+                code_col = col
+
+        for col in df.columns:
+            col_str = str(col)
             if '銘柄名' in col_str or 'name' in col_str.lower() or '名称' in col_str:
                 name_col = col
+                break
+
+        st.info(f"✅ 使用する列 - コード: '{code_col}', 銘柄名: '{name_col}'")
 
         if code_col is None or name_col is None:
             raise Exception(f"必要な列が見つかりません。利用可能な列: {df.columns.tolist()}")
@@ -444,20 +457,25 @@ def get_premium_market_stocks():
                 code_raw = row[code_col]
                 name_raw = row[name_col]
 
-                # コードを文字列に変換（ハイフンや文字列をスキップ）
+                # コードを文字列に変換
                 if pd.notna(code_raw):
                     code_str = str(code_raw).strip()
                     # ハイフンや空文字列をスキップ
                     if code_str in ['-', '', 'nan', 'None']:
                         continue
+
+                    # 数字のみの場合は整数化（例: 7203.0 → 7203）
+                    # 英字を含む場合はそのまま（例: 130A → 130A）
                     try:
-                        code = str(int(float(code_str)))  # float経由でintに変換
-                    except (ValueError, TypeError):
-                        # 数値に変換できない場合はスキップ
-                        error_count += 1
-                        if error_count <= 5:
-                            st.warning(f"行 {idx}: コード '{code_str}' は数値に変換できません")
-                        continue
+                        # floatとして読めて、整数値なら整数化
+                        float_val = float(code_str)
+                        if float_val == int(float_val):
+                            code = str(int(float_val))
+                        else:
+                            code = code_str
+                    except ValueError:
+                        # floatに変換できない（文字が含まれる）場合はそのまま使用
+                        code = code_str
                 else:
                     continue
 
@@ -474,9 +492,9 @@ def get_premium_market_stocks():
 
             except Exception as e:
                 error_count += 1
-                if error_count <= 5:  # 最初の5件のエラーを表示
-                    st.warning(f"行 {idx}: 予期しないエラー - {e}")
-                continue
+                continue  # エラー表示なしでスキップ
+
+        st.info(f"✅ 処理完了: 成功={success_count}件, スキップ={error_count}件")
 
         if len(stocks) == 0:
             raise Exception("銘柄が取得できませんでした")
