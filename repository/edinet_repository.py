@@ -136,23 +136,28 @@ class EDINETRepository:
         Returns:
             {期間: {ファイル名: DataFrame}} の辞書
         """
-        if doc_types is None:
+        # doc_typesがNoneの場合はすべての書類種類を許可（リストとして渡されない）
+        # 空リストの場合はデフォルト値を使用
+        if doc_types is not None and len(doc_types) == 0:
             doc_types = ['120', '140']  # 有価証券報告書、四半期報告書
 
         financial_data = {}
         company_code = company_code.replace('.T', '').replace(' ', '')
 
         # 各年について、過去N日分の書類を検索
-        # 1年あたり30日分チェック（月に1回程度の頻度で書類提出をカバー）
+        # 毎日チェック（書類提出日を確実にカバー）
+        # 注: API制限を考慮して最大180日間に制限
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=365 * years)
+        max_days = min(365 * years, 180)  # 最大180日間
+        start_date = end_date - timedelta(days=max_days)
 
         # デバッグ情報用の変数
         total_checked_dates = 0
         dates_with_docs = 0
         matching_docs_count = 0
+        sample_sec_codes = []  # サンプル証券コードを収集
 
-        # 30日ごとにサンプリング
+        # 毎日チェック（書類提出日を確実にカバー）
         current_date = end_date
         while current_date >= start_date:
             date_str = current_date.strftime('%Y-%m-%d')
@@ -160,37 +165,71 @@ class EDINETRepository:
 
             documents = self.get_documents_list(date_str)
             if not documents:
-                current_date -= timedelta(days=30)
+                current_date -= timedelta(days=1)
                 continue
 
             dates_with_docs += 1
 
             # 対象企業の書類をフィルタリング
             company_docs = []
-            for doc in documents.get('results', []):
+            for idx, doc in enumerate(documents.get('results', [])):
                 sec_code = (doc.get('secCode') or '').replace(' ', '')
                 edinet_code = doc.get('edinetCode') or ''
+                filer_name = doc.get('filerName', '')
+
+                # サンプル証券コードを収集（最初の10件のみ）
+                if len(sample_sec_codes) < 10 and sec_code:
+                    sample_sec_codes.append(f"{filer_name[:20]}... | {sec_code}")
+
+                # デバッグ: 企業コードが一致する書類を詳細ログ出力
+                if company_code in sec_code or (filer_name and company_code in filer_name):
+                    doc_type_for_debug = doc.get('docTypeCode')
+                    print(f"  候補発見: {filer_name} | 証券コード: '{sec_code}' | EDINETコード: {edinet_code} | 書類種類: {doc_type_for_debug}")
 
                 if (sec_code.startswith(company_code) or edinet_code == company_code):
                     doc_type = doc.get('docTypeCode')
-                    if doc_type in doc_types:
+                    print(f"    → 企業コード一致チェック: sec_code='{sec_code}', doc_type='{doc_type}', 期待される書類種類={doc_types}")
+                    # doc_typesがNoneの場合はすべての書類を受け入れる
+                    if doc_types is None or doc_type in doc_types:
                         company_docs.append(doc)
                         matching_docs_count += 1
+                        print(f"    ✓ マッチ成功: {filer_name} | 書類種類: {doc_type}")
+                    else:
+                        print(f"    ✗ 書類種類不一致: doc_type='{doc_type}' not in {doc_types}")
 
             # 各書類のデータを取得
             for doc in company_docs:
                 doc_id = doc.get('docID')
+                doc_type_code = doc.get('docTypeCode')
+                filer_name_for_dl = doc.get('filerName', '')
+
+                print(f"      → 書類ダウンロード試行: {doc_id} | 種類: {doc_type_code}")
                 doc_content = self.get_document(doc_id, doc_type=5)  # CSV形式
 
                 if doc_content:
+                    print(f"        ✓ ダウンロード成功 ({len(doc_content)} bytes)")
                     csv_data = self.extract_csv_data(doc_content)
                     if csv_data:
                         period = doc.get('periodEnd', 'Unknown')
                         financial_data[period] = csv_data
+                        print(f"        ✓ CSV抽出成功: {len(csv_data)} ファイル")
+                    else:
+                        print(f"        ✗ CSV抽出失敗: ZIPにCSVファイルなし")
+                else:
+                    print(f"        ✗ ダウンロード失敗またはデータなし")
 
-            current_date -= timedelta(days=30)
+            current_date -= timedelta(days=1)
 
         # デバッグ情報を含めて返す（一時的）
-        print(f"デバッグ: チェックした日付数={total_checked_dates}, 書類があった日付数={dates_with_docs}, マッチした書類数={matching_docs_count}")
+        print(f"\n===== デバッグ情報 =====")
+        print(f"検索対象企業コード: '{company_code}'")
+        print(f"チェックした日付数: {total_checked_dates}")
+        print(f"書類があった日付数: {dates_with_docs}")
+        print(f"マッチした書類数: {matching_docs_count}")
+        if sample_sec_codes:
+            print(f"\nサンプル証券コード（最初の10件）:")
+            for sample in sample_sec_codes[:10]:
+                print(f"  {sample}")
+        print(f"====================\n")
 
         return financial_data

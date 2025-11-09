@@ -31,7 +31,10 @@ class EDINETPage:
         # 企業コード入力
         company_code = st.text_input("企業コード（例: 7203 または 7203.T）", "7203")
         
-        years = st.slider("分析年数", 1, 10, 5)
+        years = st.slider("分析年数", 1, 10, 1)  # デフォルトを1年に変更
+        st.caption("💡 最大180日間を毎日チェックします")
+
+        use_all_doc_types = st.checkbox("すべての書類種類を検索", value=False)
 
         doc_type_options = {
             '有価証券報告書': '120',
@@ -39,14 +42,21 @@ class EDINETPage:
             '四半期報告書': '140',
             '訂正四半期報告書': '150',
             '半期報告書': '160',
-            '訂正半期報告書': '170'
+            '訂正半期報告書': '170',
+            '内部統制報告書': '220',
+            '訂正内部統制報告書': '230'
         }
-        selected_doc_types = st.multiselect(
-            "書類の種類を選択",
-            options=list(doc_type_options.keys()),
-            default=['有価証券報告書', '四半期報告書']
-        )
-        selected_doc_type_codes = [doc_type_options[key] for key in selected_doc_types]
+
+        if use_all_doc_types:
+            selected_doc_type_codes = None  # None = すべての書類種類
+            st.info("📋 すべての書類種類を検索します")
+        else:
+            selected_doc_types = st.multiselect(
+                "書類の種類を選択",
+                options=list(doc_type_options.keys()),
+                default=['有価証券報告書', '四半期報告書', '内部統制報告書']
+            )
+            selected_doc_type_codes = [doc_type_options[key] for key in selected_doc_types]
         
         if st.button("財務データ取得"):
             with st.spinner("財務データを取得中..."):
@@ -54,8 +64,11 @@ class EDINETPage:
                 with st.expander("🔍 検索条件の詳細", expanded=False):
                     st.write(f"**企業コード:** {company_code}")
                     st.write(f"**分析年数:** {years}年")
-                    st.write(f"**書類種類コード:** {selected_doc_type_codes}")
-                    st.write(f"**書類種類名:** {', '.join(selected_doc_types)}")
+                    if selected_doc_type_codes is None:
+                        st.write(f"**書類種類:** すべて")
+                    else:
+                        st.write(f"**書類種類コード:** {selected_doc_type_codes}")
+                        st.write(f"**書類種類名:** {', '.join(selected_doc_types)}")
 
                 try:
                     financial_data = edinet_repo.get_financial_statements(
