@@ -1763,6 +1763,12 @@ elif mode == "銘柄スクリーニング":
                     'dividend_trend': '配当トレンド',
                     'has_special_dividend': '特別配当有無',
                     'dividend_quality_score': '配当品質スコア',
+                    'avg_per': '平均PER',
+                    'min_per': '最小PER',
+                    'max_per': '最大PER',
+                    'per_cv': 'PER変動係数',
+                    'current_per': '現在PER',
+                    'is_low_per': '割安フラグ',
                     'updated_at': '更新日時'
                 })
 

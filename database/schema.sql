@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS dividend_analysis (
     INDEX idx_quality_score (dividend_quality_score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配当分析結果';
 
+-- 5-2. PER分析結果テーブル（計算済みデータ）
+CREATE TABLE IF NOT EXISTS per_analysis (
+    ticker VARCHAR(10) PRIMARY KEY COMMENT '銘柄コード',
+    analysis_years INT DEFAULT 4 COMMENT '分析期間（年）',
+    avg_per DECIMAL(10,2) COMMENT '平均PER',
+    min_per DECIMAL(10,2) COMMENT '最小PER',
+    max_per DECIMAL(10,2) COMMENT '最大PER',
+    per_cv DECIMAL(10,4) COMMENT 'PER変動係数（標準偏差/平均）',
+    current_per DECIMAL(10,2) COMMENT '最新PER',
+    is_low_per BOOLEAN DEFAULT FALSE COMMENT '現在PERが平均より大幅に低いか（割安フラグ）',
+    calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '計算日時',
+    FOREIGN KEY (ticker) REFERENCES stocks(ticker) ON DELETE CASCADE,
+    INDEX idx_avg_per (avg_per),
+    INDEX idx_per_cv (per_cv),
+    INDEX idx_is_low_per (is_low_per)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PER分析結果';
+
 -- 6. データ更新履歴テーブル
 CREATE TABLE IF NOT EXISTS update_history (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -133,11 +150,18 @@ SELECT
     da.dividend_trend,
     da.has_special_dividend,
     da.dividend_quality_score,
+    pa.avg_per,
+    pa.min_per,
+    pa.max_per,
+    pa.per_cv,
+    pa.current_per,
+    pa.is_low_per,
     s.updated_at
 FROM stocks s
 LEFT JOIN financial_metrics fm ON s.ticker = fm.ticker
     AND fm.fiscal_date = (SELECT MAX(fiscal_date) FROM financial_metrics WHERE ticker = s.ticker)
-LEFT JOIN dividend_analysis da ON s.ticker = da.ticker;
+LEFT JOIN dividend_analysis da ON s.ticker = da.ticker
+LEFT JOIN per_analysis pa ON s.ticker = pa.ticker;
 
 -- 初期データ確認用クエリ
 -- SELECT * FROM stocks LIMIT 10;

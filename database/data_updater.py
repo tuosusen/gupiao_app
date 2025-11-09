@@ -188,6 +188,35 @@ class StockDataUpdater:
         )
         return self.db.execute_query(query, params, fetch=False)
 
+    def update_per_analysis(self, ticker, analysis_results):
+        """PER分析結果を更新"""
+        query = """
+        INSERT INTO per_analysis (
+            ticker, analysis_years, avg_per, min_per, max_per,
+            per_cv, current_per, is_low_per
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            avg_per = VALUES(avg_per),
+            min_per = VALUES(min_per),
+            max_per = VALUES(max_per),
+            per_cv = VALUES(per_cv),
+            current_per = VALUES(current_per),
+            is_low_per = VALUES(is_low_per),
+            calculated_at = CURRENT_TIMESTAMP
+        """
+        params = (
+            ticker,
+            analysis_results.get('years', 4),
+            analysis_results.get('avg_per'),
+            analysis_results.get('min_per'),
+            analysis_results.get('max_per'),
+            analysis_results.get('per_cv'),
+            analysis_results.get('current_per'),
+            analysis_results.get('is_low_per', False)
+        )
+        return self.db.execute_query(query, params, fetch=False)
+
     def fetch_and_save_single_stock(self, ticker, name):
         """単一銘柄のデータを取得してDBに保存"""
         try:
@@ -308,6 +337,55 @@ class StockDataUpdater:
             except Exception as e:
                 # 配当分析エラーをログに出力
                 print(f"✗ 配当分析エラー {ticker}: {str(e)}")
+                pass
+
+            # PER分析結果を計算して保存
+            try:
+                if hist is not None and len(hist) > 0:
+                    # メインアプリの関数をインポート
+                    from stock_analysis_app import calculate_historical_per
+
+                    # PER分析を実行（過去4年）
+                    avg_per, per_cv, current_per = calculate_historical_per(stock, years=4)
+
+                    if avg_per is not None and current_per is not None:
+                        # 過去のPER履歴を取得して最小/最大を計算
+                        per_history = []
+                        for year in range(1, 5):  # 過去4年
+                            try:
+                                hist_year = stock.history(period=f'{year}y')
+                                if hist_year is not None and len(hist_year) > 0 and 'Close' in hist_year.columns:
+                                    close_price = hist_year['Close'].iloc[-1]
+                                    info_cached = stock.info
+                                    eps = info_cached.get('trailingEps')
+                                    if eps and eps > 0:
+                                        per = close_price / eps
+                                        if per > 0:
+                                            per_history.append(per)
+                            except:
+                                continue
+
+                        min_per_val = min(per_history) if per_history else None
+                        max_per_val = max(per_history) if per_history else None
+
+                        # 割安フラグ: 現在PERが平均より20%以上低い
+                        is_low_per = current_per < (avg_per * 0.8) if (current_per and avg_per) else False
+
+                        # 分析結果を保存
+                        analysis_results = {
+                            'years': 4,
+                            'avg_per': avg_per,
+                            'min_per': min_per_val,
+                            'max_per': max_per_val,
+                            'per_cv': per_cv,
+                            'current_per': current_per,
+                            'is_low_per': is_low_per
+                        }
+                        self.update_per_analysis(ticker, analysis_results)
+                        print(f"✓ PER分析保存: {ticker}")
+            except Exception as e:
+                # PER分析エラーをログに出力
+                print(f"✗ PER分析エラー {ticker}: {str(e)}")
                 pass
 
             return True, None

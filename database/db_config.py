@@ -181,6 +181,22 @@ class DatabaseManager:
             if conditions.get('revenue_growth'):
                 query += " AND revenue_growth > 0"
 
+            # 高度なPER条件
+            if conditions.get('min_avg_per'):
+                query += " AND avg_per >= %s"
+                params.append(conditions['min_avg_per'])
+
+            if conditions.get('max_avg_per'):
+                query += " AND avg_per <= %s"
+                params.append(conditions['max_avg_per'])
+
+            if conditions.get('max_per_cv'):
+                query += " AND per_cv <= %s"
+                params.append(conditions['max_per_cv'])
+
+            if conditions.get('low_current_high_avg_per'):
+                query += " AND is_low_per = TRUE"
+
             # 市場条件
             if conditions.get('market'):
                 query += " AND market = %s"
