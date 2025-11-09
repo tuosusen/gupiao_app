@@ -7,8 +7,10 @@ import requests
 import pandas as pd
 import zipfile
 import io
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
+import re
 
 
 class EDINETRepository:
@@ -84,10 +86,10 @@ class EDINETRepository:
     def extract_xbrl_data(self, zip_content: bytes) -> Optional[bytes]:
         """
         ZIPファイルからXBRLデータを抽出
-        
+
         Args:
             zip_content: ZIPファイルのバイナリデータ
-            
+
         Returns:
             XBRLデータ、またはNone
         """
@@ -99,6 +101,118 @@ class EDINETRepository:
                             return xbrl_file.read()
                 return None
         except Exception:
+            return None
+
+    def parse_xbrl_to_dataframe(self, xbrl_content: bytes) -> Optional[Dict[str, pd.DataFrame]]:
+        """
+        XBRLデータをパースして財務データをDataFrameに変換
+
+        Args:
+            xbrl_content: XBRLファイルのバイナリデータ
+
+        Returns:
+            {カテゴリ名: DataFrame} の辞書、またはNone
+        """
+        try:
+            # XMLをパース
+            root = ET.fromstring(xbrl_content)
+
+            # 名前空間を抽出（XBRLでは必須）
+            namespaces = {}
+            for event, elem in ET.iterparse(io.BytesIO(xbrl_content), events=['start-ns']):
+                ns_prefix, ns_uri = event
+                if ns_prefix:
+                    namespaces[ns_prefix] = ns_uri
+
+            # 財務データを抽出
+            financial_data = {
+                '損益計算書': [],
+                '貸借対照表': [],
+                '包括利益計算書': [],
+                'キャッシュフロー計算書': []
+            }
+
+            # XBRLの要素を探索
+            for elem in root.iter():
+                tag_name = elem.tag
+                # 名前空間を除去してタグ名を取得
+                if '}' in tag_name:
+                    tag_name = tag_name.split('}')[1]
+
+                # 財務指標のパターンマッチング
+                value = elem.text
+                if value and value.strip():
+                    # 売上高関連
+                    if re.search(r'(売上高|NetSales|Revenue)', tag_name, re.IGNORECASE):
+                        financial_data['損益計算書'].append({
+                            '項目': '売上高',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+                    # 営業利益関連
+                    elif re.search(r'(営業利益|OperatingIncome|OperatingProfit)', tag_name, re.IGNORECASE):
+                        financial_data['損益計算書'].append({
+                            '項目': '営業利益',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+                    # 当期純利益関連
+                    elif re.search(r'(当期純利益|NetIncome|ProfitLoss)', tag_name, re.IGNORECASE):
+                        financial_data['損益計算書'].append({
+                            '項目': '当期純利益',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+                    # 総資産関連
+                    elif re.search(r'(総資産|TotalAssets|Assets)', tag_name, re.IGNORECASE):
+                        financial_data['貸借対照表'].append({
+                            '項目': '総資産',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+                    # 純資産関連
+                    elif re.search(r'(純資産|NetAssets|Equity)', tag_name, re.IGNORECASE):
+                        financial_data['貸借対照表'].append({
+                            '項目': '純資産',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+                    # 営業キャッシュフロー関連
+                    elif re.search(r'(営業.*キャッシュ|OperatingCashFlow|CashFlowsFromOperating)', tag_name, re.IGNORECASE):
+                        financial_data['キャッシュフロー計算書'].append({
+                            '項目': '営業活動によるキャッシュフロー',
+                            'タグ': tag_name,
+                            '値': value,
+                            'コンテキスト': elem.get('contextRef', ''),
+                            '単位': elem.get('unitRef', '')
+                        })
+
+            # DataFrameに変換
+            result = {}
+            for category, items in financial_data.items():
+                if items:
+                    df = pd.DataFrame(items)
+                    result[category] = df
+
+            return result if result else None
+
+        except Exception as e:
+            print(f"XBRL解析エラー: {e}")
             return None
     
     def extract_csv_data(self, zip_content: bytes) -> Optional[Dict[str, pd.DataFrame]]:
@@ -204,17 +318,28 @@ class EDINETRepository:
                 filer_name_for_dl = doc.get('filerName', '')
 
                 print(f"      → 書類ダウンロード試行: {doc_id} | 種類: {doc_type_code}")
-                doc_content = self.get_document(doc_id, doc_type=5)  # CSV形式
+                doc_content = self.get_document(doc_id, doc_type=1)  # XBRL形式に変更
 
                 if doc_content:
                     print(f"        ✓ ダウンロード成功 ({len(doc_content)} bytes)")
-                    csv_data = self.extract_csv_data(doc_content)
-                    if csv_data:
-                        period = doc.get('periodEnd', 'Unknown')
-                        financial_data[period] = csv_data
-                        print(f"        ✓ CSV抽出成功: {len(csv_data)} ファイル")
+
+                    # XBRLデータを抽出
+                    xbrl_content = self.extract_xbrl_data(doc_content)
+                    if xbrl_content:
+                        print(f"        ✓ XBRL抽出成功 ({len(xbrl_content)} bytes)")
+
+                        # XBRLをパースしてDataFrameに変換
+                        parsed_data = self.parse_xbrl_to_dataframe(xbrl_content)
+                        if parsed_data:
+                            period = doc.get('periodEnd', 'Unknown')
+                            financial_data[period] = parsed_data
+                            print(f"        ✓ XBRL解析成功: {len(parsed_data)} カテゴリ")
+                            for category, df in parsed_data.items():
+                                print(f"          - {category}: {len(df)} 項目")
+                        else:
+                            print(f"        ✗ XBRL解析失敗: 財務データを抽出できませんでした")
                     else:
-                        print(f"        ✗ CSV抽出失敗: ZIPにCSVファイルなし")
+                        print(f"        ✗ XBRL抽出失敗: ZIPにXBRLファイルなし")
                 else:
                     print(f"        ✗ ダウンロード失敗またはデータなし")
 
