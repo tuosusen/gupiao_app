@@ -1719,7 +1719,14 @@ elif mode == "銘柄スクリーニング":
                 'market': 'プライム' if market == "全銘柄" else None,
                 'min_profit_margin': (min_profit_margin / 100.0) if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
                 'revenue_growth': revenue_growth if 'revenue_growth' in locals() and revenue_growth else False,
-                'dividend_growth': dividend_growth if 'dividend_growth' in locals() and dividend_growth else False
+                'dividend_growth': dividend_growth if 'dividend_growth' in locals() and dividend_growth else False,
+                # 高度なPER条件（表示用のみ、データベースではフィルタリングされない）
+                'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
+                'per_years': per_years if 'per_years' in locals() else 4,
+                'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
+                'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
+                'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
+                'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False
             }
 
             with st.spinner("データベースから検索中..."):
@@ -1825,6 +1832,11 @@ elif mode == "銘柄スクリーニング":
 
         # 設定条件の表示
         st.subheader("設定条件")
+
+        # デバッグ: conditions の内容を確認
+        with st.expander("🔍 デバッグ情報（条件の詳細）"):
+            st.write(conditions)
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -1853,15 +1865,36 @@ elif mode == "銘柄スクリーニング":
             if conditions.get('revenue_growth', False):
                 st.write(f"- 売上高増加傾向: 有効")
 
+            # PER条件
             max_per_val = conditions.get('max_per')
-            st.write(f"- 最大PER: {max_per_val if max_per_val else 'None'}倍以下")
+            if max_per_val:
+                st.write(f"- 最大PER: {max_per_val}倍以下")
 
+            min_per_val = conditions.get('min_per')
+            if min_per_val:
+                st.write(f"- 最小PER: {min_per_val}倍以上")
+
+            # 高度なPER条件
+            per_years = conditions.get('per_years', 4)
             max_avg_per_val = conditions.get('max_avg_per')
             if max_avg_per_val:
-                st.write(f"- 過去4年平均PER: {max_avg_per_val}倍以下")
+                st.write(f"- 過去{per_years}年平均PER: {max_avg_per_val}倍以下")
 
+            min_avg_per_val = conditions.get('min_avg_per')
+            if min_avg_per_val:
+                st.write(f"- 過去{per_years}年平均PER: {min_avg_per_val}倍以上")
+
+            max_per_cv_val = conditions.get('max_per_cv')
+            if max_per_cv_val:
+                st.write(f"- PER変動係数: {max_per_cv_val}以下")
+
+            if conditions.get('low_current_high_avg_per', False):
+                st.write(f"- 現在PERが平均より大幅に低い: 有効")
+
+            # PBR条件
             max_pbr_val = conditions.get('max_pbr')
-            st.write(f"- 最大PBR: {max_pbr_val if max_pbr_val else 'None'}倍以下")
+            if max_pbr_val:
+                st.write(f"- 最大PBR: {max_pbr_val}倍以下")
 
         st.write("---")
 
