@@ -375,15 +375,8 @@ def get_premium_market_stocks():
                 response = requests.get(url, timeout=30)
                 response.raise_for_status()
 
-                # ヘッダー行の可能性を考慮して読み込み
-                # まず1行目から読んでデータを確認
-                df_test = pd.read_excel(io.BytesIO(response.content), engine=engine, nrows=10)
-                st.write("最初の10行（生データ）:")
-                st.write(df_test)
-
-                # 正式にデータを読み込み
                 df = pd.read_excel(io.BytesIO(response.content), engine=engine)
-                st.success(f"✅ ダウンロード成功（{len(df)}行）")
+                st.success(f"✅ ダウンロード成功")
                 break  # 成功したらループを抜ける
 
             except Exception as e:
@@ -427,25 +420,12 @@ def get_premium_market_stocks():
         code_col = None
         name_col = None
 
-        # すべての列名を表示（デバッグ用）
-        st.write("全ての列名:", df.columns.tolist())
-
         for col in df.columns:
             col_str = str(col)
-            # 「コード」で終わる列で、「規模」が含まれていないものを優先
-            if col_str == 'コード' or col_str == '証券コード':
+            if 'コード' in col_str or 'code' in col_str.lower():
                 code_col = col
-                break  # 見つかったら即座に採用
-            elif 'コード' in col_str and '規模' not in col_str and code_col is None:
-                code_col = col
-
-        for col in df.columns:
-            col_str = str(col)
             if '銘柄名' in col_str or 'name' in col_str.lower() or '名称' in col_str:
                 name_col = col
-                break
-
-        st.info(f"✅ 使用する列 - コード: '{code_col}', 銘柄名: '{name_col}'")
 
         if code_col is None or name_col is None:
             raise Exception(f"必要な列が見つかりません。利用可能な列: {df.columns.tolist()}")
@@ -454,10 +434,7 @@ def get_premium_market_stocks():
         st.write(f"プライム市場データサンプル（全{len(premium_df)}件中の最初の10行）:")
         # インデックスをリセットしてから表示
         premium_df_reset = premium_df.reset_index(drop=True)
-        # コード列を文字列に変換してから表示
-        display_df = premium_df_reset[[code_col, name_col, market_col]].head(10).copy()
-        display_df[code_col] = display_df[code_col].astype(str)
-        st.write(display_df)
+        st.write(premium_df_reset[[code_col, name_col, market_col]].head(10))
 
         error_count = 0
         success_count = 0
@@ -467,25 +444,20 @@ def get_premium_market_stocks():
                 code_raw = row[code_col]
                 name_raw = row[name_col]
 
-                # コードを文字列に変換
+                # コードを文字列に変換（ハイフンや文字列をスキップ）
                 if pd.notna(code_raw):
                     code_str = str(code_raw).strip()
                     # ハイフンや空文字列をスキップ
                     if code_str in ['-', '', 'nan', 'None']:
                         continue
-
-                    # 数字のみの場合は整数化（例: 7203.0 → 7203）
-                    # 英字を含む場合はそのまま（例: 130A → 130A）
                     try:
-                        # floatとして読めて、整数値なら整数化
-                        float_val = float(code_str)
-                        if float_val == int(float_val):
-                            code = str(int(float_val))
-                        else:
-                            code = code_str
-                    except ValueError:
-                        # floatに変換できない（文字が含まれる）場合はそのまま使用
-                        code = code_str
+                        code = str(int(float(code_str)))  # float経由でintに変換
+                    except (ValueError, TypeError):
+                        # 数値に変換できない場合はスキップ
+                        error_count += 1
+                        if error_count <= 5:
+                            st.warning(f"行 {idx}: コード '{code_str}' は数値に変換できません")
+                        continue
                 else:
                     continue
 
@@ -502,9 +474,9 @@ def get_premium_market_stocks():
 
             except Exception as e:
                 error_count += 1
-                continue  # エラー表示なしでスキップ
-
-        st.info(f"✅ 処理完了: 成功={success_count}件, スキップ={error_count}件")
+                if error_count <= 5:  # 最初の5件のエラーを表示
+                    st.warning(f"行 {idx}: 予期しないエラー - {e}")
+                continue
 
         if len(stocks) == 0:
             raise Exception("銘柄が取得できませんでした")
@@ -1200,19 +1172,6 @@ def screen_stocks(stocks, conditions):
     """条件に基づいて銘柄をスクリーニング"""
     results = []
 
-    # デバッグ用統計
-    debug_stats = {
-        'total': 0,
-        'no_dividend': 0,
-        'low_dividend': 0,
-        'high_cv': 0,
-        'no_trend': 0,
-        'failed_per': 0,
-        'failed_pbr': 0,
-        'failed_margin': 0,
-        'passed': 0
-    }
-
     progress_bar = st.progress(0)
     status_text = st.empty()
 
@@ -1388,14 +1347,6 @@ def screen_stocks(stocks, conditions):
 
     progress_bar.empty()
     status_text.empty()
-
-    # スクリーニング統計を表示
-    st.info(f"""
-    📊 スクリーニング統計:
-    - 対象銘柄数: {total_stocks}件
-    - 合格銘柄数: {len(results)}件
-    - 除外率: {((total_stocks - len(results)) / total_stocks * 100):.1f}%
-    """)
 
     return pd.DataFrame(results)
 
@@ -1760,14 +1711,11 @@ elif mode == "銘柄スクリーニング":
         if st.button("スクリーニング実行", type="primary"):
             # DBスクリーニング用の条件辞書を作成
             db_conditions = {
-                'min_dividend_yield': min_dividend_yield if 'min_dividend_yield' in locals() and min_dividend_yield > 0 else None,
-                'min_profit_margin': min_profit_margin if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
-                'revenue_growth': revenue_growth if 'revenue_growth' in locals() else False,
-                'max_per': max_per if 'max_per' in locals() and max_per < 100 else None,
-                'max_pbr': max_pbr if 'max_pbr' in locals() and max_pbr < 10 else None,
+                'min_dividend_yield': min_dividend_yield if min_dividend_yield > 0 else None,
+                'max_per': max_per if max_per < 50 else None,
+                'max_pbr': max_pbr if max_pbr < 10 else None,
                 'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
                 'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
-                'max_avg_per': max_avg_per if 'max_avg_per' in locals() and max_avg_per < 50 else None,
                 'market': 'プライム' if market == "全銘柄" else None
             }
 
@@ -1804,47 +1752,46 @@ elif mode == "銘柄スクリーニング":
         # 従来のリアルタイムスクリーニング
         st.info("yfinanceからリアルタイムでデータを取得します。左側のサイドバーで条件を設定してください。")
 
-        if st.button("スクリーニング実行", type="primary"):
-            # 条件を辞書にまとめる
-            conditions = {
-                # 基本条件
-                'use_basic_dividend': use_basic_dividend if 'use_basic_dividend' in locals() else True,
-                'min_dividend_yield': min_dividend_yield,
-                'dividend_growth': dividend_growth,
-                'revenue_growth': revenue_growth,
-                'min_profit_margin': min_profit_margin,
-                'use_basic_per': use_basic_per if 'use_basic_per' in locals() else True,
-                'max_per': max_per,
-                'max_pbr': max_pbr,
-                # 高度な配当条件
-                'use_advanced_dividend': use_advanced_dividend if 'use_advanced_dividend' in locals() else False,
-                'dividend_years': dividend_years if 'dividend_years' in locals() else 4,
-                'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() else None,
-                'max_dividend_cv': max_dividend_cv if 'max_dividend_cv' in locals() else None,
-                'declining_but_high_avg': declining_but_high_avg if 'declining_but_high_avg' in locals() else False,
-                'require_increasing_trend': require_increasing_trend if 'require_increasing_trend' in locals() else False,
-                'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
-                'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() else None,
-                # 高度なPER条件
-                'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
-                'per_years': per_years if 'per_years' in locals() else 4,
-                'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
-                'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
-                'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
-                'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False,
-            }
+    if st.button("スクリーニング実行", type="primary"):
+        # 条件を辞書にまとめる
+        conditions = {
+            # 基本条件
+            'use_basic_dividend': use_basic_dividend if 'use_basic_dividend' in locals() else True,
+            'min_dividend_yield': min_dividend_yield,
+            'dividend_growth': dividend_growth,
+            'revenue_growth': revenue_growth,
+            'min_profit_margin': min_profit_margin,
+            'use_basic_per': use_basic_per if 'use_basic_per' in locals() else True,
+            'max_per': max_per,
+            'max_pbr': max_pbr,
+            # 高度な配当条件
+            'use_advanced_dividend': use_advanced_dividend if 'use_advanced_dividend' in locals() else False,
+            'dividend_years': dividend_years if 'dividend_years' in locals() else 4,
+            'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() else None,
+            'max_dividend_cv': max_dividend_cv if 'max_dividend_cv' in locals() else None,
+            'declining_but_high_avg': declining_but_high_avg if 'declining_but_high_avg' in locals() else False,
+            'require_increasing_trend': require_increasing_trend if 'require_increasing_trend' in locals() else False,
+            'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
+            'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() else None,
+            # 高度なPER条件
+            'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
+            'per_years': per_years if 'per_years' in locals() else 4,
+            'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
+            'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
+            'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
+            'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False,
+        }
 
-            # スクリーニング実行
-            stocks = get_stock_list(market)
+        # スクリーニング実行
+        stocks = get_stock_list(market)
 
-            with st.spinner("スクリーニング実行中..."):
-                results_df = screen_stocks(stocks, conditions)
+        with st.spinner("スクリーニング実行中..."):
+            results_df = screen_stocks(stocks, conditions)
 
-            # 結果をセッション状態に保存
-            st.session_state['screening_results'] = results_df
-            st.session_state['screening_conditions'] = conditions
-            st.session_state['screening_mode'] = 'realtime'
-            st.session_state['screening_market'] = market
+        # 結果をセッション状態に保存
+        st.session_state['screening_results'] = results_df
+        st.session_state['screening_conditions'] = conditions
+        st.session_state['screening_market'] = market
 
     # スクリーニング結果が保存されている場合は表示
     if 'screening_results' in st.session_state and st.session_state['screening_results'] is not None:
