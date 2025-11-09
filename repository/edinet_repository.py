@@ -117,13 +117,6 @@ class EDINETRepository:
             # XMLをパース
             root = ET.fromstring(xbrl_content)
 
-            # 名前空間を抽出（XBRLでは必須）
-            namespaces = {}
-            for event, elem in ET.iterparse(io.BytesIO(xbrl_content), events=['start-ns']):
-                ns_prefix, ns_uri = event
-                if ns_prefix:
-                    namespaces[ns_prefix] = ns_uri
-
             # 財務データを抽出
             financial_data = {
                 '損益計算書': [],
