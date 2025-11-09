@@ -95,12 +95,51 @@ class EDINETRepository:
         """
         try:
             with zipfile.ZipFile(io.BytesIO(zip_content)) as zip_file:
+                xbrl_files = []
+
+                # すべてのXBRLファイルを収集
                 for file_name in zip_file.namelist():
-                    if file_name.endswith('.xbrl') or 'XBRL' in file_name:
-                        with zip_file.open(file_name) as xbrl_file:
-                            return xbrl_file.read()
+                    if file_name.endswith('.xbrl'):
+                        xbrl_files.append(file_name)
+
+                if not xbrl_files:
+                    return None
+
+                # 財務データを含む可能性が高いXBRLファイルを優先
+                # 1. PublicDoc内のファイル（財務諸表データ）
+                # 2. ファイルサイズが大きいもの
+                priority_files = []
+                for xbrl_file in xbrl_files:
+                    # ヘッダーファイル、監査報告書を除外
+                    if 'header' in xbrl_file.lower() or 'audit' in xbrl_file.lower():
+                        continue
+                    # PublicDoc内のファイルを優先
+                    if 'PublicDoc' in xbrl_file or 'public' in xbrl_file.lower():
+                        priority_files.insert(0, xbrl_file)
+                    else:
+                        priority_files.append(xbrl_file)
+
+                # 優先順位の高いファイルから試す
+                target_files = priority_files if priority_files else xbrl_files
+
+                # サイズ順にソート（大きいファイルほど財務データを含む可能性が高い）
+                file_sizes = []
+                for file_name in target_files:
+                    file_info = zip_file.getinfo(file_name)
+                    file_sizes.append((file_name, file_info.file_size))
+
+                file_sizes.sort(key=lambda x: x[1], reverse=True)
+
+                # 最大のXBRLファイルを返す
+                if file_sizes:
+                    largest_file = file_sizes[0][0]
+                    print(f"        💡 {len(xbrl_files)}個のXBRLファイル中、最大のファイルを選択: {largest_file} ({file_sizes[0][1]} bytes)")
+                    with zip_file.open(largest_file) as xbrl_file:
+                        return xbrl_file.read()
+
                 return None
-        except Exception:
+        except Exception as e:
+            print(f"XBRL抽出エラー: {e}")
             return None
 
     def parse_xbrl_to_dataframe(self, xbrl_content: bytes) -> Optional[Dict[str, pd.DataFrame]]:
