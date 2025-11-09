@@ -1760,11 +1760,14 @@ elif mode == "銘柄スクリーニング":
         if st.button("スクリーニング実行", type="primary"):
             # DBスクリーニング用の条件辞書を作成
             db_conditions = {
-                'min_dividend_yield': min_dividend_yield if min_dividend_yield > 0 else None,
-                'max_per': max_per if max_per < 50 else None,
-                'max_pbr': max_pbr if max_pbr < 10 else None,
+                'min_dividend_yield': min_dividend_yield if 'min_dividend_yield' in locals() and min_dividend_yield > 0 else None,
+                'min_profit_margin': min_profit_margin if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
+                'revenue_growth': revenue_growth if 'revenue_growth' in locals() else False,
+                'max_per': max_per if 'max_per' in locals() and max_per < 100 else None,
+                'max_pbr': max_pbr if 'max_pbr' in locals() and max_pbr < 10 else None,
                 'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
                 'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
+                'max_avg_per': max_avg_per if 'max_avg_per' in locals() and max_avg_per < 50 else None,
                 'market': 'プライム' if market == "全銘柄" else None
             }
 
@@ -1855,17 +1858,37 @@ elif mode == "銘柄スクリーニング":
 
         with col1:
             st.write("**配当条件**")
-            st.write(f"- 最低配当利回り: {conditions.get('min_dividend_yield', 'N/A')}%以上")
+            min_div = conditions.get('min_dividend_yield')
+            st.write(f"- 最低配当利回り: {min_div if min_div else 'None'}%以上")
+
+            min_avg_div = conditions.get('min_avg_dividend_yield')
+            if min_avg_div:
+                st.write(f"- 過去平均配当利回り: {min_avg_div}%以上")
+
+            min_quality = conditions.get('min_dividend_quality_score')
+            if min_quality:
+                st.write(f"- 配当品質スコア: {min_quality}点以上")
+
             if conditions.get('dividend_growth', False):
                 st.write(f"- 配当増加傾向: 有効")
 
         with col2:
             st.write("**業績・バリュエーション**")
-            st.write(f"- 最低利益率: {conditions.get('min_profit_margin', 'N/A')}%以上")
+            min_profit = conditions.get('min_profit_margin')
+            st.write(f"- 最低利益率: {min_profit if min_profit else 'N/A'}%以上")
+
             if conditions.get('revenue_growth', False):
                 st.write(f"- 売上高増加傾向: 有効")
-            st.write(f"- 最大PER: {conditions.get('max_per', 'N/A')}倍以下")
-            st.write(f"- 最大PBR: {conditions.get('max_pbr', 'N/A')}倍以下")
+
+            max_per_val = conditions.get('max_per')
+            st.write(f"- 最大PER: {max_per_val if max_per_val else 'None'}倍以下")
+
+            max_avg_per_val = conditions.get('max_avg_per')
+            if max_avg_per_val:
+                st.write(f"- 過去4年平均PER: {max_avg_per_val}倍以下")
+
+            max_pbr_val = conditions.get('max_pbr')
+            st.write(f"- 最大PBR: {max_pbr_val if max_pbr_val else 'None'}倍以下")
 
         st.write("---")
 

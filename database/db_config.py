@@ -151,17 +151,10 @@ class DatabaseManager:
         params = []
 
         if conditions:
+            # 配当条件
             if conditions.get('min_dividend_yield'):
                 query += " AND dividend_yield >= %s"
                 params.append(conditions['min_dividend_yield'])
-
-            if conditions.get('max_per'):
-                query += " AND per <= %s AND per > 0"
-                params.append(conditions['max_per'])
-
-            if conditions.get('max_pbr'):
-                query += " AND pbr <= %s AND pbr > 0"
-                params.append(conditions['max_pbr'])
 
             if conditions.get('min_avg_dividend_yield'):
                 query += " AND avg_dividend_yield >= %s"
@@ -171,11 +164,30 @@ class DatabaseManager:
                 query += " AND dividend_quality_score >= %s"
                 params.append(conditions['min_dividend_quality_score'])
 
+            # バリュエーション条件
+            if conditions.get('max_per'):
+                query += " AND per <= %s AND per > 0"
+                params.append(conditions['max_per'])
+
+            if conditions.get('max_pbr'):
+                query += " AND pbr <= %s AND pbr > 0"
+                params.append(conditions['max_pbr'])
+
+            # 業績条件
+            if conditions.get('min_profit_margin'):
+                query += " AND profit_margin >= %s"
+                params.append(conditions['min_profit_margin'])
+
+            if conditions.get('revenue_growth'):
+                query += " AND revenue_growth > 0"
+
+            # 市場条件
             if conditions.get('market'):
                 query += " AND market = %s"
                 params.append(conditions['market'])
 
-        query += " ORDER BY dividend_quality_score DESC"
+        # ソート順（配当品質スコアがある場合はそれで、なければPERで）
+        query += " ORDER BY COALESCE(dividend_quality_score, 0) DESC, per ASC"
 
         return self.execute_query(query, params)
 
