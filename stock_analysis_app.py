@@ -1740,15 +1740,30 @@ elif mode == "銘柄スクリーニング":
                     'ticker': '銘柄コード',
                     'name': '銘柄名',
                     'sector': 'セクター',
+                    'industry': '業種',
                     'market': '市場',
+                    'market_cap': '時価総額',
                     'per': 'PER',
                     'pbr': 'PBR',
-                    'roe': 'ROE',
-                    'dividend_yield': '配当利回り(%)',
-                    'avg_dividend_yield': '平均配当利回り(%)',
+                    'roe': 'ROE (%)',
+                    'dividend_yield': '配当利回り (%)',
+                    'dividend_rate': '年間配当金',
+                    'payout_ratio': '配当性向 (%)',
+                    'profit_margin': '利益率 (%)',
+                    'revenue_growth': '売上高成長率 (%)',
+                    'avg_dividend_yield': '平均配当利回り (%)',
                     'dividend_cv': '配当変動係数',
-                    'dividend_quality_score': '配当品質スコア'
+                    'dividend_trend': '配当トレンド',
+                    'has_special_dividend': '特別配当有無',
+                    'dividend_quality_score': '配当品質スコア',
+                    'updated_at': '更新日時'
                 })
+
+                # パーセント列を小数からパーセント表示に変換（DB: 0.05 → 表示: 5.0）
+                percent_columns = ['ROE (%)', '配当利回り (%)', '配当性向 (%)', '利益率 (%)', '売上高成長率 (%)', '平均配当利回り (%)']
+                for col in percent_columns:
+                    if col in results_df.columns:
+                        results_df[col] = results_df[col] * 100
 
                 # 結果をセッション状態に保存
                 st.session_state['screening_results'] = results_df
