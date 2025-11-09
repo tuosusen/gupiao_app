@@ -125,12 +125,21 @@ class EDINETRepository:
                 'キャッシュフロー計算書': []
             }
 
+            # デバッグ: 最初の50個のタグをサンプル表示
+            tag_samples = []
+            elem_count = 0
+
             # XBRLの要素を探索
             for elem in root.iter():
                 tag_name = elem.tag
                 # 名前空間を除去してタグ名を取得
                 if '}' in tag_name:
                     tag_name = tag_name.split('}')[1]
+
+                # デバッグ用サンプル収集（最初の50個のみ）
+                if elem_count < 50 and elem.text and elem.text.strip():
+                    tag_samples.append(f"{tag_name}: {elem.text.strip()[:50]}")
+                    elem_count += 1
 
                 # 財務指標のパターンマッチング
                 value = elem.text
@@ -195,12 +204,23 @@ class EDINETRepository:
                             '単位': elem.get('unitRef', '')
                         })
 
+            # デバッグ: サンプルタグを表示
+            if tag_samples:
+                print(f"        📋 XBRLタグサンプル（最初の{len(tag_samples)}個）:")
+                for i, sample in enumerate(tag_samples[:10], 1):
+                    print(f"          {i}. {sample}")
+
             # DataFrameに変換
             result = {}
             for category, items in financial_data.items():
                 if items:
                     df = pd.DataFrame(items)
                     result[category] = df
+
+            # デバッグ: マッチしたタグがない場合の追加情報
+            if not result:
+                print(f"        ⚠️ 財務指標のパターンにマッチするタグが見つかりませんでした")
+                print(f"        💡 XBRLファイルに {elem_count} 個の要素がありますが、パターンにマッチしませんでした")
 
             return result if result else None
 
