@@ -123,31 +123,47 @@ class EDINETRepository:
         except Exception:
             return None
     
-    def get_financial_statements(self, company_code: str, years: int = 5, 
+    def get_financial_statements(self, company_code: str, years: int = 5,
                                  doc_types: List[str] = None) -> Dict[str, Dict[str, pd.DataFrame]]:
         """
         企業の財務諸表を取得
-        
+
         Args:
             company_code: 企業コード（証券コードまたはEDINETコード）
             years: 取得する年数
             doc_types: 書類種類コードのリスト（例: ['120', '140']）
-            
+
         Returns:
             {期間: {ファイル名: DataFrame}} の辞書
         """
         if doc_types is None:
             doc_types = ['120', '140']  # 有価証券報告書、四半期報告書
-        
+
         financial_data = {}
         company_code = company_code.replace('.T', '').replace(' ', '')
 
-        for year_offset in range(years):
-            target_date = (datetime.now() - timedelta(days=365*year_offset)).strftime('%Y-%m-%d')
-            
-            documents = self.get_documents_list(target_date)
+        # 各年について、過去N日分の書類を検索
+        # 1年あたり30日分チェック（月に1回程度の頻度で書類提出をカバー）
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365 * years)
+
+        # デバッグ情報用の変数
+        total_checked_dates = 0
+        dates_with_docs = 0
+        matching_docs_count = 0
+
+        # 30日ごとにサンプリング
+        current_date = end_date
+        while current_date >= start_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            total_checked_dates += 1
+
+            documents = self.get_documents_list(date_str)
             if not documents:
+                current_date -= timedelta(days=30)
                 continue
+
+            dates_with_docs += 1
 
             # 対象企業の書類をフィルタリング
             company_docs = []
@@ -159,6 +175,7 @@ class EDINETRepository:
                     doc_type = doc.get('docTypeCode')
                     if doc_type in doc_types:
                         company_docs.append(doc)
+                        matching_docs_count += 1
 
             # 各書類のデータを取得
             for doc in company_docs:
@@ -170,5 +187,10 @@ class EDINETRepository:
                     if csv_data:
                         period = doc.get('periodEnd', 'Unknown')
                         financial_data[period] = csv_data
+
+            current_date -= timedelta(days=30)
+
+        # デバッグ情報を含めて返す（一時的）
+        print(f"デバッグ: チェックした日付数={total_checked_dates}, 書類があった日付数={dates_with_docs}, マッチした書類数={matching_docs_count}")
 
         return financial_data

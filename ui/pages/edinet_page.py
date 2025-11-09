@@ -50,20 +50,67 @@ class EDINETPage:
         
         if st.button("財務データ取得"):
             with st.spinner("財務データを取得中..."):
-                financial_data = edinet_repo.get_financial_statements(
-                    company_code, years, selected_doc_type_codes
-                )
-                
-                if financial_data:
-                    st.success(f"{len(financial_data)}期分の財務データを取得しました")
-                    
-                    # 財務指標の計算
-                    ratios = EDINETPage._calculate_financial_ratios(financial_data)
-                    
-                    # 結果の表示
-                    EDINETPage._display_financial_analysis(financial_data, ratios)
-                else:
-                    st.error("財務データを取得できませんでした")
+                # デバッグ情報を表示
+                with st.expander("🔍 検索条件の詳細", expanded=False):
+                    st.write(f"**企業コード:** {company_code}")
+                    st.write(f"**分析年数:** {years}年")
+                    st.write(f"**書類種類コード:** {selected_doc_type_codes}")
+                    st.write(f"**書類種類名:** {', '.join(selected_doc_types)}")
+
+                try:
+                    financial_data = edinet_repo.get_financial_statements(
+                        company_code, years, selected_doc_type_codes
+                    )
+
+                    # デバッグ: 取得したデータの構造を表示
+                    st.info(f"✅ API呼び出し完了 - 取得期間数: {len(financial_data) if financial_data else 0}")
+
+                    if financial_data and len(financial_data) > 0:
+                        st.success(f"🎉 {len(financial_data)}期分の財務データを取得しました")
+
+                        # 財務指標の計算
+                        ratios = EDINETPage._calculate_financial_ratios(financial_data)
+
+                        # 結果の表示
+                        EDINETPage._display_financial_analysis(financial_data, ratios)
+                    else:
+                        st.error("❌ 財務データを取得できませんでした")
+                        st.warning("""
+                        **考えられる原因:**
+                        - 企業コードが正しくない可能性があります（証券コード4桁: 例 7203）
+                        - 指定期間内に該当する書類が提出されていない可能性があります
+                        - APIキーが無効または期限切れの可能性があります
+                        - EDINET APIのレート制限に達している可能性があります
+
+                        **確認事項:**
+                        1. 企業コードは証券コード4桁（例: 7203）で入力してください
+                        2. APIキーが有効か確認してください（https://api.edinet-fsa.go.jp/）
+                        3. 書類の種類と期間を調整してみてください
+                        4. しばらく待ってから再試行してください
+
+                        **よくある企業コード例:**
+                        - トヨタ自動車: 7203
+                        - ソニーグループ: 6758
+                        - ソフトバンクグループ: 9984
+                        """)
+
+                        # API接続テスト
+                        with st.expander("🔧 API接続テスト", expanded=False):
+                            from datetime import datetime
+                            test_date = datetime.now().strftime('%Y-%m-%d')
+                            st.write(f"テスト日付: {test_date}")
+                            test_result = edinet_repo.get_documents_list(test_date)
+                            if test_result:
+                                st.success("✅ EDINET APIへの接続は成功しています")
+                                st.write(f"取得した書類数: {len(test_result.get('results', []))}")
+                            else:
+                                st.error("❌ EDINET APIへの接続に失敗しました - APIキーを確認してください")
+
+                except Exception as e:
+                    st.error(f"❌ エラーが発生しました: {str(e)}")
+                    import traceback
+                    with st.expander("エラー詳細", expanded=False):
+                        st.code(traceback.format_exc())
     
     @staticmethod
     def _extract_revenue_data(data: Dict) -> Optional[list]:
