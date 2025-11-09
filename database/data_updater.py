@@ -191,24 +191,39 @@ class StockDataUpdater:
     def fetch_and_save_single_stock(self, ticker, name):
         """単一銘柄のデータを取得してDBに保存"""
         try:
-            # レート制限回避のため、ランダムな遅延を追加
-            time.sleep(random.uniform(0.5, 1.5))
+            # レート制限回避のため、ランダムな遅延を追加（1.5-3.0秒）
+            time.sleep(random.uniform(1.5, 3.0))
 
-            # yfinanceからデータ取得
-            try:
-                stock = yf.Ticker(ticker)
-                info = stock.info
-            except Exception as e:
-                # レート制限エラーの場合は再試行
-                if "Too Many Requests" in str(e) or "Rate limited" in str(e):
-                    time.sleep(5)  # 5秒待機
-                    try:
-                        stock = yf.Ticker(ticker)
-                        info = stock.info
-                    except:
-                        return False, f"レート制限エラー（再試行失敗）"
-                else:
-                    return False, f"yfinanceエラー: {str(e)[:50]}"
+            # yfinanceからデータ取得（リトライ機能付き）
+            stock = None
+            info = None
+            max_retries = 3
+
+            for attempt in range(max_retries):
+                try:
+                    stock = yf.Ticker(ticker)
+                    info = stock.info
+                    break  # 成功したらループを抜ける
+                except Exception as e:
+                    # レート制限エラーの場合は指数バックオフで再試行
+                    if "Too Many Requests" in str(e) or "Rate limited" in str(e) or "429" in str(e):
+                        if attempt < max_retries - 1:
+                            wait_time = 5 * (2 ** attempt)  # 5秒、10秒、20秒
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            # 最後の試行でも失敗したら長時間待機して1回だけ再試行
+                            time.sleep(30)
+                            try:
+                                stock = yf.Ticker(ticker)
+                                info = stock.info
+                            except:
+                                return False, f"レート制限エラー（{max_retries}回再試行失敗）"
+                    else:
+                        return False, f"yfinanceエラー: {str(e)[:50]}"
+
+            if info is None:
+                return False, "データ取得失敗"
 
             # 基本情報を保存
             try:
@@ -229,7 +244,7 @@ class StockDataUpdater:
                     'per': info.get('trailingPE'),
                     'pbr': info.get('priceToBook'),
                     'roe': info.get('returnOnEquity'),
-                    'dividend_yield': info.get('dividendYield') * 100 if info.get('dividendYield') else None,
+                    'dividend_yield': info.get('dividendYield'),  # yfinanceは既にパーセント単位で返す
                     'dividend_rate': info.get('dividendRate'),
                     'payout_ratio': info.get('payoutRatio'),
                     'profit_margin': info.get('profitMargins'),
@@ -253,15 +268,47 @@ class StockDataUpdater:
                 pass
 
             # 株価履歴を保存（過去5年）
+            hist = None
             try:
                 hist = stock.history(period='5y')
                 if hist is not None and len(hist) > 0:
                     self.update_stock_prices(ticker, hist)
             except Exception as e:
-                return False, f"株価履歴保存エラー: {str(e)[:50]}"
+                # 株価履歴がなくても続行
+                hist = None
+                pass
 
-            # TODO: 配当分析結果の計算と保存
-            # （既存のcalculate_historical_dividend_yield関数を使用）
+            # 配当分析結果を計算して保存
+            try:
+                if dividends is not None and len(dividends) > 0 and hist is not None and len(hist) > 0:
+                    # メインアプリの関数をインポート
+                    from stock_analysis_app import calculate_historical_dividend_yield, calculate_dividend_quality_score
+
+                    # 配当分析を実行
+                    avg_yield, cv, current_yield, trend, has_special = calculate_historical_dividend_yield(
+                        stock, dividends, hist, years=5
+                    )
+
+                    # スコアを計算
+                    if avg_yield is not None:
+                        quality_score = calculate_dividend_quality_score(avg_yield, cv, trend, has_special)
+
+                        # 分析結果を保存
+                        analysis_results = {
+                            'years': 5,
+                            'avg_yield': avg_yield,
+                            'cv': cv,
+                            'current_yield': current_yield,
+                            'trend': trend,
+                            'has_special': has_special,
+                            'quality_score': quality_score
+                        }
+                        self.update_dividend_analysis(ticker, analysis_results)
+                        print(f"✓ 配当分析保存: {ticker}")
+            except Exception as e:
+                # 配当分析エラーをログに出力
+                print(f"✗ 配当分析エラー {ticker}: {str(e)}")
+                pass
 
             return True, None
 
@@ -312,3 +359,84 @@ class StockDataUpdater:
 
 # グローバルインスタンス
 data_updater = StockDataUpdater()
+
+
+def batch_update_dividend_analysis():
+    """配当データがある全銘柄の配当分析を一括計算"""
+    import yfinance as yf
+    from stock_analysis_app import calculate_historical_dividend_yield, calculate_dividend_quality_score
+
+    db = DatabaseManager()
+    updater = StockDataUpdater()
+
+    # 配当データがある銘柄のリストを取得
+    query = """
+    SELECT DISTINCT d.ticker, s.name
+    FROM dividends d
+    INNER JOIN stocks s ON d.ticker = s.ticker
+    ORDER BY d.ticker
+    """
+
+    stocks_with_dividends = db.execute_query(query)
+
+    if not stocks_with_dividends:
+        print("配当データがある銘柄が見つかりません")
+        return 0, 0
+
+    total = len(stocks_with_dividends)
+    print(f"\n配当分析を開始: {total}件")
+
+    success_count = 0
+    error_count = 0
+
+    for idx, stock_info in enumerate(stocks_with_dividends, 1):
+        ticker = stock_info['ticker']
+        name = stock_info['name']
+
+        try:
+            # yfinanceからデータを取得
+            stock = yf.Ticker(ticker)
+            dividends = stock.dividends
+            hist = stock.history(period='5y')
+
+            if dividends is not None and len(dividends) > 0 and hist is not None and len(hist) > 0:
+                # 配当分析を実行
+                avg_yield, cv, current_yield, trend, has_special = calculate_historical_dividend_yield(
+                    stock, dividends, hist, years=5
+                )
+
+                # スコアを計算
+                if avg_yield is not None:
+                    quality_score = calculate_dividend_quality_score(avg_yield, cv, trend, has_special)
+
+                    # 分析結果を保存
+                    analysis_results = {
+                        'years': 5,
+                        'avg_yield': avg_yield,
+                        'cv': cv,
+                        'current_yield': current_yield,
+                        'trend': trend,
+                        'has_special': has_special,
+                        'quality_score': quality_score
+                    }
+                    updater.update_dividend_analysis(ticker, analysis_results)
+
+                    success_count += 1
+                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_yield:.2f}%, スコア={quality_score}")
+                else:
+                    error_count += 1
+                    div_count = len(dividends) if dividends is not None else 0
+                    hist_count = len(hist) if hist is not None else 0
+                    print(f"NG [{idx}/{total}] {ticker} ({name}): avg_yield=None (配当:{div_count}件, 株価:{hist_count}件, cv={cv}, current={current_yield}, trend={trend})")
+            else:
+                error_count += 1
+                div_count = len(dividends) if dividends is not None else 0
+                hist_count = len(hist) if hist is not None else 0
+                print(f"NG [{idx}/{total}] {ticker} ({name}): データなし (配当:{div_count}件, 株価:{hist_count}件)")
+
+        except Exception as e:
+            error_count += 1
+            print(f"ERROR [{idx}/{total}] {ticker} ({name}): {str(e)[:100]}")
+
+    print(f"\n配当分析完了: 成功={success_count}件, エラー={error_count}件")
+    return success_count, error_count

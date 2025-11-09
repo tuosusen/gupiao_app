@@ -12,7 +12,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from database.db_config import DatabaseConfig, DatabaseManager
-from database.data_updater import StockDataUpdater
+from database.data_updater import StockDataUpdater, batch_update_dividend_analysis
 
 st.set_page_config(
     page_title="データ更新 - 株価分析アプリ",
@@ -49,8 +49,8 @@ with tab1:
         st.subheader("全銘柄更新")
 
         # 並列処理数の選択
-        max_workers = st.slider("並列処理数", 1, 10, 3, help="同時に処理する銘柄数（推奨: 2-3、多すぎるとレート制限エラー）")
-        st.info("⚠️ レート制限を避けるため、並列処理数は2-3を推奨します。5以上は高確率でエラーになります。")
+        max_workers = st.slider("並列処理数", 1, 5, 2, help="同時に処理する銘柄数（推奨: 1-2、多すぎるとレート制限エラー）")
+        st.warning("⚠️ **重要**: レート制限を避けるため、並列処理数は1-2を強く推奨します。3以上は高確率でエラーになります。")
 
         # JPXから銘柄リストを取得して更新を開始
         if st.button("🔄 プライム市場全銘柄を更新", type="primary"):
@@ -141,6 +141,38 @@ with tab1:
             """)
         else:
             st.info("✅ 更新が必要な銘柄はありません")
+
+    st.divider()
+
+    st.subheader("配当分析の一括計算")
+    st.info("💡 配当データがある全銘柄の5年平均利回りを計算してdividend_analysisテーブルに保存します")
+
+    # 配当データの状況を表示
+    dividend_stats = db_manager.execute_query("""
+        SELECT
+            COUNT(DISTINCT d.ticker) as with_dividend,
+            COUNT(DISTINCT da.ticker) as with_analysis
+        FROM dividends d
+        LEFT JOIN dividend_analysis da ON d.ticker = da.ticker
+    """)
+
+    if dividend_stats:
+        stats = dividend_stats[0]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.metric("配当データがある銘柄", f"{stats['with_dividend']}件")
+        with col_b:
+            st.metric("配当分析済み銘柄", f"{stats['with_analysis']}件")
+
+    if st.button("📊 配当分析を一括実行", type="secondary"):
+        with st.spinner("配当分析を実行中..."):
+            success_count, error_count = batch_update_dividend_analysis()
+
+            st.success(f"""
+            ✅ 配当分析完了！
+            - 成功: {success_count}銘柄
+            - エラー: {error_count}銘柄
+            """)
 
 with tab2:
     st.header("データベース状態")

@@ -454,7 +454,10 @@ def get_premium_market_stocks():
         st.write(f"プライム市場データサンプル（全{len(premium_df)}件中の最初の10行）:")
         # インデックスをリセットしてから表示
         premium_df_reset = premium_df.reset_index(drop=True)
-        st.write(premium_df_reset[[code_col, name_col, market_col]].head(10))
+        # コード列を文字列に変換してから表示
+        display_df = premium_df_reset[[code_col, name_col, market_col]].head(10).copy()
+        display_df[code_col] = display_df[code_col].astype(str)
+        st.write(display_df)
 
         error_count = 0
         success_count = 0
@@ -464,18 +467,25 @@ def get_premium_market_stocks():
                 code_raw = row[code_col]
                 name_raw = row[name_col]
 
-                # コードを文字列に変換（ハイフンや文字列をスキップ）
+                # コードを文字列に変換
                 if pd.notna(code_raw):
                     code_str = str(code_raw).strip()
                     # ハイフンや空文字列をスキップ
                     if code_str in ['-', '', 'nan', 'None']:
                         continue
+
+                    # 数字のみの場合は整数化（例: 7203.0 → 7203）
+                    # 英字を含む場合はそのまま（例: 130A → 130A）
                     try:
-                        code = str(int(float(code_str)))  # float経由でintに変換
-                    except (ValueError, TypeError):
-                        # 数値に変換できない場合はスキップ（市場区分コードなど）
-                        error_count += 1
-                        continue  # エラー表示なしでスキップ
+                        # floatとして読めて、整数値なら整数化
+                        float_val = float(code_str)
+                        if float_val == int(float_val):
+                            code = str(int(float_val))
+                        else:
+                            code = code_str
+                    except ValueError:
+                        # floatに変換できない（文字が含まれる）場合はそのまま使用
+                        code = code_str
                 else:
                     continue
 
@@ -959,6 +969,14 @@ def calculate_historical_dividend_yield(ticker_obj, dividends, hist_prices, year
     try:
         if dividends is None or len(dividends) == 0 or hist_prices is None or len(hist_prices) == 0:
             return None, None, None, None, None
+
+        # タイムゾーン情報を削除（yfinanceのデータはUTC、datetime.now()はnaive）
+        dividends = dividends.copy()
+        hist_prices = hist_prices.copy()
+        if hasattr(dividends.index, 'tz') and dividends.index.tz is not None:
+            dividends.index = dividends.index.tz_localize(None)
+        if hasattr(hist_prices.index, 'tz') and hist_prices.index.tz is not None:
+            hist_prices.index = hist_prices.index.tz_localize(None)
 
         # 過去N年分のデータを取得
         cutoff_date = datetime.now() - timedelta(days=365 * years)
