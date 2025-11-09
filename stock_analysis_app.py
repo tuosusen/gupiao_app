@@ -1122,28 +1122,41 @@ def calculate_dividend_quality_score(avg_yield, cv, trend, has_special_div):
         return None
 
 def calculate_historical_per(ticker_obj, years=5):
-    """過去N年のPERを計算（EPSベース）"""
+    """過去N年のPERを計算（過去の各年末時点のPER）"""
     try:
-        # 年次PERを計算
+        import pandas as pd
+        from datetime import datetime
+
+        # 過去N年+1年の株価データを取得（十分な履歴を確保）
+        hist = ticker_obj.history(period=f'{years + 1}y')
+        if hist is None or len(hist) == 0 or 'Close' not in hist.columns:
+            return None, None, None
+
+        # 現在のEPSを取得
+        info = ticker_obj.info
+        current_eps = info.get('trailingEps')
+        if not current_eps or current_eps <= 0:
+            return None, None, None
+
+        # 年次PERを計算（過去N年の各年末時点）
         yearly_pers = []
+        current_date = datetime.now()
 
-        for year in range(1, years + 1):
+        for year_offset in range(years):
             try:
-                # 過去N年の株価データを取得
-                hist_year = ticker_obj.history(period=f'{year}y')
-                if hist_year is None or len(hist_year) == 0 or 'Close' not in hist_year.columns:
-                    continue
+                # N年前の年末日付を計算（12月31日）
+                target_year = current_date.year - year_offset
+                year_end = pd.Timestamp(target_year, 12, 31, tz='Asia/Tokyo')
 
-                # その年の終値（最終日）
-                close_price = hist_year['Close'].iloc[-1]
+                # その年末以前の最も近い株価を取得
+                hist_before = hist[hist.index <= year_end]
+                if len(hist_before) > 0:
+                    close_price = hist_before['Close'].iloc[-1]
 
-                # EPSを取得（info.trailingEpsは直近のEPSなので各年で取得）
-                info = ticker_obj.info
-                eps = info.get('trailingEps')
-
-                if eps and eps > 0 and close_price > 0:
-                    per = close_price / eps
-                    if per > 0:  # 負のPERは除外
+                    # PER = 株価 / EPS
+                    # 注意: 現在のEPSを使用（過去のEPSは取得不可）
+                    per = close_price / current_eps
+                    if per > 0:
                         yearly_pers.append(per)
 
             except Exception:
@@ -1162,8 +1175,8 @@ def calculate_historical_per(ticker_obj, years=5):
         else:
             cv = 0
 
-        # 現在のPER（最新）
-        current_per = yearly_pers[-1] if len(yearly_pers) > 0 else None
+        # 現在のPER（最新＝0年前）
+        current_per = yearly_pers[0] if len(yearly_pers) > 0 else None
 
         return avg_per, cv, current_per
 

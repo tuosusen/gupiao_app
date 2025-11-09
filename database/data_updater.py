@@ -339,40 +339,43 @@ class StockDataUpdater:
                 print(f"✗ 配当分析エラー {ticker}: {str(e)}")
                 pass
 
-            print(f"[DEBUG] {ticker}: 配当分析完了、PER分析開始")
-
             # PER分析結果を計算して保存
             try:
-                print(f"[PER分析開始] {ticker}: hist exists={hist is not None}, len={len(hist) if hist is not None else 0}")
                 if hist is not None and len(hist) > 0:
                     # メインアプリの関数をインポート
                     from stock_analysis_app import calculate_historical_per
-                    print(f"[PER分析] {ticker}: calculate_historical_per imported")
 
                     # PER分析を実行（過去4年）
                     avg_per, per_cv, current_per = calculate_historical_per(stock, years=4)
-                    print(f"[PER分析] {ticker}: avg_per={avg_per}, per_cv={per_cv}, current_per={current_per}")
 
                     if avg_per is not None and current_per is not None:
                         # 過去のPER履歴を取得して最小/最大を計算
+                        # calculate_historical_perで計算した値を使用
+                        from datetime import datetime
+                        import pandas as pd
+
                         per_history = []
-                        for year in range(1, 5):  # 過去4年
-                            try:
-                                hist_year = stock.history(period=f'{year}y')
-                                if hist_year is not None and len(hist_year) > 0 and 'Close' in hist_year.columns:
-                                    close_price = hist_year['Close'].iloc[-1]
-                                    info_cached = stock.info
-                                    eps = info_cached.get('trailingEps')
-                                    if eps and eps > 0:
-                                        per = close_price / eps
+                        info = stock.info
+                        current_eps = info.get('trailingEps')
+
+                        if current_eps and current_eps > 0:
+                            for year_offset in range(4):  # 過去4年
+                                try:
+                                    target_year = datetime.now().year - year_offset
+                                    year_end = pd.Timestamp(target_year, 12, 31, tz='Asia/Tokyo')
+
+                                    # その年末以前の最も近い株価を取得
+                                    hist_before = hist[hist.index <= year_end]
+                                    if len(hist_before) > 0:
+                                        close_price = hist_before['Close'].iloc[-1]
+                                        per = close_price / current_eps
                                         if per > 0:
                                             per_history.append(per)
-                            except:
-                                continue
+                                except:
+                                    continue
 
                         min_per_val = min(per_history) if per_history else None
                         max_per_val = max(per_history) if per_history else None
-                        print(f"[PER分析] {ticker}: per_history count={len(per_history)}, min={min_per_val}, max={max_per_val}")
 
                         # 割安フラグ: 現在PERが平均より20%以上低い
                         is_low_per = current_per < (avg_per * 0.8) if (current_per and avg_per) else False
@@ -387,21 +390,13 @@ class StockDataUpdater:
                             'current_per': float(current_per) if current_per is not None else None,
                             'is_low_per': bool(is_low_per)
                         }
-                        print(f"[PER分析] {ticker}: Calling update_per_analysis with {analysis_results}")
                         self.update_per_analysis(ticker, analysis_results)
                         print(f"✓ PER分析保存: {ticker}")
-                    else:
-                        print(f"[PER分析スキップ] {ticker}: avg_per={avg_per}, current_per={current_per} (None detected)")
-                else:
-                    print(f"[PER分析スキップ] {ticker}: hist is None or empty")
             except Exception as e:
                 # PER分析エラーをログに出力
                 print(f"✗ PER分析エラー {ticker}: {str(e)}")
-                import traceback
-                traceback.print_exc()
                 pass
 
-            print(f"[DEBUG] {ticker}: fetch_and_save_single_stock 完了")
             return True, None
 
         except Exception as e:
