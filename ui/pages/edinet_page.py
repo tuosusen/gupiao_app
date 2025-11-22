@@ -163,18 +163,39 @@ class EDINETPage:
     def _display_financial_analysis(financial_data: Dict, ratios: Dict):
         """財務分析結果を表示"""
         st.header("財務分析結果")
-        
-        # 財務指標テーブル
-        if ratios:
-            ratios_df = pd.DataFrame(ratios).T
+
+        # データ処理サービスをインポート
+        from services.edinet_data_processor import EDINETDataProcessor
+        processor = EDINETDataProcessor()
+
+        # 主要財務指標のサマリーを作成
+        metrics_df = processor.extract_key_metrics(financial_data)
+
+        if not metrics_df.empty:
+            # 成長率を計算
+            metrics_with_growth = processor.calculate_growth_rates(metrics_df)
+
+            # 主要財務指標の表示
             st.subheader("財務指標")
-            st.dataframe(ratios_df)
-            
+
+            # 表示用に数値カラムを除外
+            display_cols = [col for col in metrics_with_growth.columns if not col.endswith('_数値')]
+            display_df = metrics_with_growth[display_cols]
+
+            st.dataframe(display_df, use_container_width=True)
+
             # グラフ表示
             st.subheader("推移グラフ")
-            if '売上高成長率' in ratios_df.columns:
-                st.line_chart(ratios_df['売上高成長率'])
-        
+            chart_data = processor.prepare_chart_data(metrics_df)
+
+            if '損益推移' in chart_data:
+                st.write("**売上高・利益の推移**")
+                st.line_chart(chart_data['損益推移'])
+
+            if '資産推移' in chart_data:
+                st.write("**総資産・純資産の推移**")
+                st.line_chart(chart_data['資産推移'])
+
         # 詳細データの表示
         st.subheader("詳細財務データ")
         for period, data in financial_data.items():
