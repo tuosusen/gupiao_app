@@ -1801,11 +1801,13 @@ elif mode == "銘柄スクリーニング":
                     'updated_at': '更新日時'
                 })
 
-                # パーセント列を小数からパーセント表示に変換（DB: 0.05 → 表示: 5.0）
-                percent_columns = ['ROE (%)', '配当利回り (%)', '配当性向 (%)', '利益率 (%)', '売上高成長率 (%)', '平均配当利回り (%)']
-                for col in percent_columns:
-                    if col in results_df.columns:
-                        results_df[col] = results_df[col] * 100
+                # 注: データベースには既にパーセント形式で保存されているため、変換不要
+                # 例: DB: 17.48 → 表示: 17.48% （100倍しない）
+                # 以下のコードはコメントアウト
+                # percent_columns = ['ROE (%)', '配当利回り (%)', '配当性向 (%)', '利益率 (%)', '売上高成長率 (%)', '平均配当利回り (%)']
+                # for col in percent_columns:
+                #     if col in results_df.columns:
+                #         results_df[col] = results_df[col] * 100
 
                 # 結果をセッション状態に保存
                 st.session_state['screening_results'] = results_df
