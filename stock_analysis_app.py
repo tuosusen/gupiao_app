@@ -114,8 +114,8 @@ else:
             # プリセット条件
             dividend_preset = st.sidebar.selectbox(
                 "プリセット条件",
-                ["カスタム", "安定高配当株", "減配だが過去高配当"],
-                help="カスタム: 自分で設定\n安定高配当株: 過去平均3.5%以上で変動が小さい\n減配だが過去高配当: 今期減配だが過去5年平均4%以上"
+                ["カスタム", "安定高配当株", "減配だが過去高配当", "💎 高配当・低リスク（推奨）"],
+                help="カスタム: 自分で設定\n安定高配当株: 過去平均3.5%以上で変動が小さい\n減配だが過去高配当: 今期減配だが過去5年平均4%以上\n💎 高配当・低リスク: 配当4%以上＋倒産リスク低（特別配当除く）"
             )
 
             if dividend_preset == "安定高配当株":
@@ -132,6 +132,16 @@ else:
                 require_increasing_trend = False
                 exclude_special_dividend = False
                 min_dividend_quality_score = None
+            elif dividend_preset == "💎 高配当・低リスク（推奨）":
+                # あなたの投資スタイル専用設定
+                min_avg_dividend_yield = 4.0  # 配当利回り4%以上
+                max_dividend_cv = 0.4  # やや変動は許容
+                declining_but_high_avg = False
+                require_increasing_trend = False
+                exclude_special_dividend = True  # 特別配当除く
+                min_dividend_quality_score = 50  # 品質スコア中程度以上
+                # 倒産リスク評価を有効化（後で実装）
+                st.session_state['enable_bankruptcy_risk_filter'] = True
             else:  # カスタム
                 min_avg_dividend_yield = st.sidebar.number_input(
                     f"過去{dividend_years}年平均配当利回り (%) 以上",
@@ -1927,6 +1937,33 @@ elif mode == "銘柄スクリーニング":
         st.subheader("スクリーニング結果")
 
         if len(results_df) > 0:
+            # 倒産リスク評価を追加（高配当・低リスクモードの場合）
+            if st.session_state.get('enable_bankruptcy_risk_filter', False):
+                from services.investment_screener import InvestmentScreener
+
+                with st.spinner("倒産リスクを評価中..."):
+                    risk_data = []
+                    for _, row in results_df.iterrows():
+                        ticker = row.get('銘柄コード')
+                        if ticker:
+                            risk_level, risk_metrics, risk_detail = InvestmentScreener.assess_bankruptcy_risk(ticker)
+                            risk_data.append({
+                                '銘柄コード': ticker,
+                                'リスクレベル': risk_level,
+                                'リスク詳細': risk_detail,
+                                **risk_metrics
+                            })
+
+                    if risk_data:
+                        risk_df = pd.DataFrame(risk_data)
+                        # 結果に結合
+                        results_df = results_df.merge(risk_df, on='銘柄コード', how='left')
+
+                        # 低〜中リスクのみにフィルタ
+                        results_df = results_df[results_df['リスクレベル'].isin(['低リスク', '中リスク'])]
+
+                        st.info(f"💎 倒産リスクフィルタ適用: 低〜中リスクの銘柄のみ表示")
+
             st.success(f"条件に合致する銘柄: {len(results_df)}銘柄")
 
             # データテーブル表示
