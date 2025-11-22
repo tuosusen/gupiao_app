@@ -34,10 +34,14 @@ class StockInfo:
         ticker_symbol = data.get('symbol', '')
         company_name = cls._get_japanese_name(ticker_symbol, data)
 
+        # セクターも日本語化
+        english_sector = data.get('sector')
+        japanese_sector = cls._translate_sector_to_japanese(english_sector)
+
         return cls(
             ticker=ticker_symbol,
             name=company_name,
-            sector=data.get('sector'),
+            sector=japanese_sector,
             market=data.get('market'),
             current_price=data.get('currentPrice') or data.get('regularMarketPrice'),
             market_cap=data.get('marketCap'),
@@ -86,3 +90,35 @@ class StockInfo:
                 pass
 
         return english_name
+
+    @staticmethod
+    def _translate_sector_to_japanese(english_sector: Optional[str]) -> Optional[str]:
+        """
+        英語のセクター名を日本語に翻訳
+
+        Args:
+            english_sector: 英語のセクター名
+
+        Returns:
+            日本語のセクター名
+        """
+        if not english_sector:
+            return None
+
+        # セクター名の日本語マッピング
+        sector_translations = {
+            'Technology': 'テクノロジー',
+            'Financial Services': '金融サービス',
+            'Healthcare': 'ヘルスケア',
+            'Consumer Cyclical': '一般消費財・サービス',
+            'Consumer Defensive': '生活必需品',
+            'Industrials': '資本財・サービス',
+            'Energy': 'エネルギー',
+            'Utilities': '公益事業',
+            'Real Estate': '不動産',
+            'Basic Materials': '素材',
+            'Communication Services': 'コミュニケーション・サービス',
+            'Telecommunication Services': '通信サービス',
+        }
+
+        return sector_translations.get(english_sector, english_sector)
