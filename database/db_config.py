@@ -157,7 +157,11 @@ class DatabaseManager:
                 params.append(conditions['min_dividend_yield'])
 
             if conditions.get('min_avg_dividend_yield'):
-                query += " AND avg_dividend_yield >= %s"
+                # 特別配当を除外する場合はregular_dividend_yieldを使用
+                if conditions.get('exclude_special_dividend'):
+                    query += " AND regular_dividend_yield >= %s"
+                else:
+                    query += " AND avg_dividend_yield >= %s"
                 params.append(conditions['min_avg_dividend_yield'])
 
             if conditions.get('min_dividend_quality_score'):

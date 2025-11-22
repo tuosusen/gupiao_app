@@ -87,12 +87,14 @@ CREATE TABLE IF NOT EXISTS dividend_analysis (
     avg_dividend_yield DECIMAL(10,4) COMMENT '平均配当利回り',
     dividend_cv DECIMAL(10,4) COMMENT '配当変動係数',
     current_dividend_yield DECIMAL(10,4) COMMENT '最新配当利回り',
+    regular_dividend_yield DECIMAL(10,4) COMMENT '通常配当利回り（特別配当除く）',
     dividend_trend DECIMAL(10,4) COMMENT '配当トレンド（線形回帰の傾き）',
     has_special_dividend BOOLEAN DEFAULT FALSE COMMENT '特別配当有無',
     dividend_quality_score INT COMMENT '配当クオリティスコア（0-100）',
     calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '計算日時',
     FOREIGN KEY (ticker) REFERENCES stocks(ticker) ON DELETE CASCADE,
     INDEX idx_avg_dividend_yield (avg_dividend_yield),
+    INDEX idx_regular_dividend_yield (regular_dividend_yield),
     INDEX idx_quality_score (dividend_quality_score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配当分析結果';
 
@@ -150,6 +152,8 @@ SELECT
     da.dividend_trend,
     da.has_special_dividend,
     da.dividend_quality_score,
+    da.current_dividend_yield,
+    da.regular_dividend_yield,
     pa.avg_per,
     pa.min_per,
     pa.max_per,

@@ -1745,6 +1745,7 @@ elif mode == "銘柄スクリーニング":
                 'max_pbr': max_pbr if max_pbr < 10 else None,
                 'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
                 'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
+                'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
                 'market': 'プライム' if market == "全銘柄" else None,
                 'min_profit_margin': (min_profit_margin / 100.0) if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
                 'revenue_growth': revenue_growth if 'revenue_growth' in locals() and revenue_growth else False,

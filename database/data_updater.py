@@ -163,14 +163,15 @@ class StockDataUpdater:
         query = """
         INSERT INTO dividend_analysis (
             ticker, analysis_years, avg_dividend_yield, dividend_cv,
-            current_dividend_yield, dividend_trend, has_special_dividend,
-            dividend_quality_score
+            current_dividend_yield, regular_dividend_yield, dividend_trend,
+            has_special_dividend, dividend_quality_score
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             avg_dividend_yield = VALUES(avg_dividend_yield),
             dividend_cv = VALUES(dividend_cv),
             current_dividend_yield = VALUES(current_dividend_yield),
+            regular_dividend_yield = VALUES(regular_dividend_yield),
             dividend_trend = VALUES(dividend_trend),
             has_special_dividend = VALUES(has_special_dividend),
             dividend_quality_score = VALUES(dividend_quality_score),
@@ -182,6 +183,7 @@ class StockDataUpdater:
             analysis_results.get('avg_yield'),
             analysis_results.get('cv'),
             analysis_results.get('current_yield'),
+            analysis_results.get('regular_yield'),
             analysis_results.get('trend'),
             analysis_results.get('has_special'),
             analysis_results.get('quality_score')
@@ -312,11 +314,15 @@ class StockDataUpdater:
                 if dividends is not None and len(dividends) > 0 and hist is not None and len(hist) > 0:
                     # メインアプリの関数をインポート
                     from stock_analysis_app import calculate_historical_dividend_yield, calculate_dividend_quality_score
+                    from services.investment_screener import InvestmentScreener
 
                     # 配当分析を実行
                     avg_yield, cv, current_yield, trend, has_special = calculate_historical_dividend_yield(
                         stock, dividends, hist, years=5
                     )
+
+                    # 通常配当利回りを計算（特別配当除く）
+                    regular_yield, _ = InvestmentScreener.calculate_regular_dividend_yield(ticker)
 
                     # スコアを計算
                     if avg_yield is not None:
@@ -328,6 +334,7 @@ class StockDataUpdater:
                             'avg_yield': avg_yield,
                             'cv': cv,
                             'current_yield': current_yield,
+                            'regular_yield': regular_yield,
                             'trend': trend,
                             'has_special': has_special,
                             'quality_score': quality_score
@@ -452,6 +459,7 @@ def batch_update_dividend_analysis():
     """配当データがある全銘柄の配当分析を一括計算"""
     import yfinance as yf
     from stock_analysis_app import calculate_historical_dividend_yield, calculate_dividend_quality_score
+    from services.investment_screener import InvestmentScreener
 
     db = DatabaseManager()
     updater = StockDataUpdater()
@@ -492,6 +500,9 @@ def batch_update_dividend_analysis():
                     stock, dividends, hist, years=5
                 )
 
+                # 通常配当利回りを計算（特別配当除く）
+                regular_yield, _ = InvestmentScreener.calculate_regular_dividend_yield(ticker)
+
                 # スコアを計算
                 if avg_yield is not None:
                     quality_score = calculate_dividend_quality_score(avg_yield, cv, trend, has_special)
@@ -502,6 +513,7 @@ def batch_update_dividend_analysis():
                         'avg_yield': avg_yield,
                         'cv': cv,
                         'current_yield': current_yield,
+                        'regular_yield': regular_yield,
                         'trend': trend,
                         'has_special': has_special,
                         'quality_score': quality_score
@@ -509,7 +521,7 @@ def batch_update_dividend_analysis():
                     updater.update_dividend_analysis(ticker, analysis_results)
 
                     success_count += 1
-                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_yield:.2f}%, スコア={quality_score}")
+                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_yield:.2f}%, 通常利回り={regular_yield:.2f}%, スコア={quality_score}")
                 else:
                     error_count += 1
                     div_count = len(dividends) if dividends is not None else 0
