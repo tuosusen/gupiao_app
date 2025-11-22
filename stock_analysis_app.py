@@ -1412,7 +1412,8 @@ if mode == "個別銘柄分析" and run_analysis:
                 st.metric("時価総額", f"{market_cap:,.0f}円")
 
         with col4:
-            sector = info.get('sector', 'N/A')
+            # StockInfoモデルで既に取得済み（col2で作成）
+            sector = stock_info.sector or 'N/A'
             st.metric("セクター", sector)
 
         # 財務指標の計算と表示
