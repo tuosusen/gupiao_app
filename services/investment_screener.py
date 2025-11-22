@@ -29,18 +29,13 @@ class InvestmentScreener:
 
             # 現在株価
             current_price = info.get('currentPrice') or info.get('regularMarketPrice')
-            print(f"[DEBUG] {ticker_symbol} current_price: {current_price}")
             if not current_price or current_price <= 0:
-                print(f"[DEBUG] {ticker_symbol} 株価データなし")
                 return None, "株価データなし"
 
             # 配当データを取得
             dividends = ticker.dividends
-            print(f"[DEBUG] {ticker_symbol} dividends: {dividends}")
             if dividends is None or dividends.empty:
-                print(f"[DEBUG] {ticker_symbol} 配当なし")
                 return 0.0, "配当なし"
-
 
             # 過去1年間の配当を取得（タイムゾーンを揃える）
             one_year_ago = datetime.now() - timedelta(days=365)
@@ -50,10 +45,8 @@ class InvestmentScreener:
                 tz = dividends.index.tz
                 one_year_ago = tz.localize(one_year_ago.replace(tzinfo=None))
             recent_dividends = dividends[dividends.index > one_year_ago]
-            print(f"[DEBUG] {ticker_symbol} recent_dividends: {recent_dividends}")
 
             if recent_dividends.empty:
-                print(f"[DEBUG] {ticker_symbol} 過去1年間配当なし")
                 return 0.0, "過去1年間配当なし"
 
             # 配当の頻度を分析して特別配当を除外
@@ -67,7 +60,6 @@ class InvestmentScreener:
 
                 # 年間配当額（特別配当除く）
                 annual_dividend = regular_dividends.sum()
-                print(f"[DEBUG] {ticker_symbol} annual_dividend: {annual_dividend}")
 
                 # 配当利回り = (年間配当 / 株価) × 100
                 if annual_dividend > 0:
@@ -82,14 +74,11 @@ class InvestmentScreener:
                 else:
                     message = "通常配当"
 
-                print(f"[DEBUG] {ticker_symbol} dividend_yield: {dividend_yield}")
                 return float(dividend_yield), message
 
-            print(f"[DEBUG] {ticker_symbol} 配当データ不足")
             return 0.0, "配当データ不足"
 
         except Exception as e:
-            print(f"[DEBUG] {ticker_symbol} error: {e}")
             return None, f"エラー: {str(e)[:30]}"
 
     @staticmethod

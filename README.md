@@ -207,13 +207,41 @@ streamlit run stock_analysis_app.py
 ```
 gupiao_app/
 ├── stock_analysis_app.py      # メインアプリケーション
-├── pages/
-│   └── data_update.py          # データ更新画面
+├── main.py                     # 旧バージョンエントリーポイント
+├── edinet_app.py               # EDINET財務分析アプリ
 ├── database/
-│   ├── __init__.py             # パッケージ初期化
 │   ├── schema.sql              # データベーススキーマ
 │   ├── db_config.py            # データベース接続管理
 │   └── data_updater.py         # データ取得・更新ロジック
+├── services/
+│   ├── investment_screener.py  # 投資スクリーニング機能
+│   └── edinet_data_processor.py # EDINETデータ処理
+├── repository/
+│   ├── database_manager.py     # データベースマネージャー
+│   ├── stock_list_repository.py # 銘柄リストリポジトリ
+│   ├── yfinance_repository.py   # yfinanceリポジトリ
+│   └── edinet_repository.py    # EDINETリポジトリ
+├── domain/
+│   ├── models/                 # ドメインモデル
+│   ├── calculators/            # 計算ロジック
+│   ├── validators/             # バリデーション
+│   └── utils/                  # ユーティリティ
+├── ui/
+│   ├── components/             # UIコンポーネント
+│   ├── layouts/                # レイアウト
+│   └── pages/                  # ページ
+├── scripts/
+│   ├── clear_tables.py         # テーブルクリアスクリプト
+│   ├── update_dividend_analysis.py # 配当分析更新スクリプト
+│   ├── acount.py               # アカウント関連ユーティリティ
+│   └── config.py               # 設定ファイル
+├── docs/
+│   ├── ARCHITECTURE.md         # アーキテクチャドキュメント
+│   ├── SETUP_GUIDE.md          # セットアップガイド
+│   ├── EDINET_FIX_SUMMARY.md   # EDINET修正サマリー
+│   ├── EDINET_LIMITATIONS.md   # EDINET制限事項
+│   ├── README_REFACTORING.md   # リファクタリング記録
+│   └── XBRL_IMPLEMENTATION.md  # XBRL実装ドキュメント
 ├── requirements.txt            # 必要なパッケージリスト
 └── README.md                   # このファイル
 ```

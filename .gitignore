@@ -46,3 +46,6 @@ data_j.xls
 *.tmp
 *.bak
 check*
+old_backup/
+clear_special_dividends.py
+update_schema.py
