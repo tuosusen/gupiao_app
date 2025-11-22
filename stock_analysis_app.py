@@ -1474,7 +1474,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 height=300,
                 showlegend=False
             )
-            st.plotly_chart(fig_div, use_container_width=True)
+            st.plotly_chart(fig_div, width="stretch")
 
         # 業績・財務指標セクション
         st.header("💰 業績・財務指標")
@@ -1555,7 +1555,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 financials_display = financials_display.round(0)
                 # 項目名を日本語と英語で表示
                 financials_display = translate_financial_terms(financials_display)
-                st.dataframe(financials_display, use_container_width=True)
+                st.dataframe(financials_display, width="stretch")
                 st.caption("単位：百万円")
             else:
                 st.info("損益計算書のデータが取得できませんでした。")
@@ -1574,7 +1574,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 balance_sheet_display = balance_sheet_display.round(0)
                 # 項目名を日本語と英語で表示
                 balance_sheet_display = translate_financial_terms(balance_sheet_display)
-                st.dataframe(balance_sheet_display, use_container_width=True)
+                st.dataframe(balance_sheet_display, width="stretch")
                 st.caption("単位：百万円")
             else:
                 st.info("貸借対照表のデータが取得できませんでした。")
@@ -1593,7 +1593,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 cashflow_display = cashflow_display.round(0)
                 # 項目名を日本語と英語で表示
                 cashflow_display = translate_financial_terms(cashflow_display)
-                st.dataframe(cashflow_display, use_container_width=True)
+                st.dataframe(cashflow_display, width="stretch")
                 st.caption("単位：百万円")
             else:
                 st.info("キャッシュフロー計算書のデータが取得できませんでした。")
@@ -1610,7 +1610,7 @@ if mode == "個別銘柄分析" and run_analysis:
             height=400,
             hovermode='x unified'
         )
-        st.plotly_chart(fig_price_simple, use_container_width=True)
+        st.plotly_chart(fig_price_simple, width="stretch")
 
         # テクニカル指標（折りたたみ式）
         with st.expander("📉 テクニカル指標を表示（オプション）", expanded=False):
@@ -1652,7 +1652,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 height=400,
                 xaxis_rangeslider_visible=False
             )
-            st.plotly_chart(fig_candlestick, use_container_width=True)
+            st.plotly_chart(fig_candlestick, width="stretch")
 
             # ボリンジャーバンド
             st.subheader("ボリンジャーバンド")
@@ -1666,7 +1666,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 yaxis_title="株価（円）",
                 height=300
             )
-            st.plotly_chart(fig_bb, use_container_width=True)
+            st.plotly_chart(fig_bb, width="stretch")
 
             # RSIチャート
             st.subheader("RSI（相対力指数）")
@@ -1679,7 +1679,7 @@ if mode == "個別銘柄分析" and run_analysis:
                 yaxis_title="RSI",
                 height=300
             )
-            st.plotly_chart(fig_rsi, use_container_width=True)
+            st.plotly_chart(fig_rsi, width="stretch")
 
         # 適時開示情報
         st.header("適時開示情報")
@@ -1969,7 +1969,7 @@ elif mode == "銘柄スクリーニング":
             # データテーブル表示
             st.dataframe(
                 results_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -1994,7 +1994,7 @@ elif mode == "銘柄スクリーニング":
 
             st.write("")
 
-            if st.button("📊 選択した銘柄の詳細分析を開く", key="detail_analysis_btn", type="primary", use_container_width=True):
+            if st.button("📊 選択した銘柄の詳細分析を開く", key="detail_analysis_btn", type="primary", width="stretch"):
                 # セッション状態を更新
                 st.session_state['analyze_ticker'] = selected_ticker
                 st.session_state['switch_to_analysis'] = True

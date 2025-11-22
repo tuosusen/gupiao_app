@@ -182,7 +182,7 @@ class EDINETPage:
             display_cols = [col for col in metrics_with_growth.columns if not col.endswith('_数値')]
             display_df = metrics_with_growth[display_cols]
 
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, width="stretch")
 
             # グラフ表示
             st.subheader("推移グラフ")
