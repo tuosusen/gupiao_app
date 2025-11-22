@@ -4,6 +4,7 @@
 
 from database.db_config import DatabaseManager
 from database.data_updater import StockDataUpdater
+from services.investment_screener import InvestmentScreener
 import yfinance as yf
 import sys
 import importlib
@@ -55,6 +56,9 @@ def update_dividend_analysis_for_all_stocks():
                     stock, dividends, hist, years=5
                 )
 
+                # 通常配当利回りを計算（特別配当除く）
+                regular_yield, regular_msg = InvestmentScreener.calculate_regular_dividend_yield(ticker)
+
                 # スコアを計算
                 if avg_yield is not None:
                     quality_score = calculate_dividend_quality_score(avg_yield, cv, trend, has_special)
@@ -65,6 +69,7 @@ def update_dividend_analysis_for_all_stocks():
                         'avg_yield': avg_yield,
                         'cv': cv,
                         'current_yield': current_yield,
+                        'regular_yield': regular_yield,
                         'trend': trend,
                         'has_special': has_special,
                         'quality_score': quality_score
@@ -72,7 +77,11 @@ def update_dividend_analysis_for_all_stocks():
                     updater.update_dividend_analysis(ticker, analysis_results)
 
                     success_count += 1
-                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_yield:.2f}%, スコア={quality_score}")
+                    # 安全な表示: None の可能性がある値はフォーマット前にチェック
+                    avg_str = f"{avg_yield:.2f}%" if avg_yield is not None else "N/A"
+                    reg_str = f"{regular_yield:.2f}%" if regular_yield is not None and isinstance(regular_yield, (int, float)) else "N/A"
+                    score_str = f"{quality_score}" if quality_score is not None else "N/A"
+                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_str}, 通常利回り={reg_str}, スコア={score_str}")
                 else:
                     error_count += 1
                     print(f"NG [{idx}/{total}] {ticker} ({name}): 分析データ不足")

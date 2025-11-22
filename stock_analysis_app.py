@@ -1014,17 +1014,11 @@ def calculate_historical_dividend_yield(ticker_obj, dividends, hist_prices, year
         # データを新しい順から古い順に並べ替え（時系列分析用）
         yearly_yields.reverse()
 
-        # 特別配当の検出と除外
-        # IQR（四分位範囲）法で外れ値を検出
-        if len(yearly_yields) >= 4:
-            q1 = pd.Series(yearly_yields).quantile(0.25)
-            q3 = pd.Series(yearly_yields).quantile(0.75)
-            iqr = q3 - q1
-            lower_bound = q1 - 1.5 * iqr
-            upper_bound = q3 + 1.5 * iqr
 
-            # 外れ値（特別配当の可能性）を除外
-            filtered_yields = [y for y in yearly_yields if lower_bound <= y <= upper_bound]
+        # 特別配当の検出と除外（中央値の2倍ルール）
+        if len(yearly_yields) >= 1:
+            median = pd.Series(yearly_yields).median()
+            filtered_yields = [y for y in yearly_yields if y <= median * 2]
             has_special_dividend = len(filtered_yields) < len(yearly_yields)
         else:
             filtered_yields = yearly_yields
@@ -1977,10 +1971,10 @@ elif mode == "銘柄スクリーニング":
             )
 
             # CSVダウンロードボタン
-            csv = results_df.to_csv(index=False, encoding='utf-8-sig')
+            csv_bytes = results_df.to_csv(index=False, encoding='cp932').encode('cp932')
             st.download_button(
                 label="結果をCSVでダウンロード",
-                data=csv,
+                data=csv_bytes,
                 file_name=f"screening_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )

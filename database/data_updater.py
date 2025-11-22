@@ -82,11 +82,68 @@ class StockDataUpdater:
         )
         return self.db.execute_query(query, params, fetch=False)
 
-    def update_dividends(self, ticker, dividends_df):
-        """配当履歴を更新"""
-        if dividends_df is None or len(dividends_df) == 0:
+    def update_dividends(self, ticker: str, dividends_df: pd.Series):
+        """
+        配当履歴を更新する。
+        過去5年間の「通常配当」の中央値を基準に、特別配当を動的に判定する。
+        """
+        if dividends_df is None or dividends_df.empty:
             return 0
 
+        # 1. データベースから既存の配当履歴を取得
+        # Note: get_dividends_historyはdb_config.pyに追加済み
+        db_dividends_data = self.db.get_dividends_history(ticker)
+        db_dividends_df = pd.DataFrame(db_dividends_data)
+        
+        if not db_dividends_df.empty:
+            db_dividends_df['date'] = pd.to_datetime(db_dividends_df['date'])
+            # 'dividend' と 'is_special' を適切な型に変換
+            db_dividends_df = db_dividends_df.astype({'dividend': 'float64', 'is_special': 'int32'})
+            db_dividends_df.set_index('date', inplace=True)
+
+        # 2. 「通常配当」の中央値を計算
+        regular_median = None
+        if not db_dividends_df.empty:
+            five_years_ago = datetime.now() - timedelta(days=365 * 5)
+            # 過去5年間の通常配当を抽出
+            regular_dividends = db_dividends_df[
+                (db_dividends_df.index > five_years_ago) &
+                (db_dividends_df['is_special'] == 0)
+            ]['dividend']
+
+            if not regular_dividends.empty:
+                regular_median = regular_dividends.median()
+
+        # フォールバック: DBに通常配当データがない場合、yfinanceの過去5年データの中央値を使用
+        if regular_median is None:
+            five_years_ago = datetime.now() - timedelta(days=365 * 5)
+            recent_yf_dividends = dividends_df[dividends_df.index > five_years_ago]
+            if not recent_yf_dividends.empty:
+                regular_median = recent_yf_dividends.median()
+
+        # 3. yfinanceから取得した全配当のis_specialを再判定
+        data_list = []
+        for date, amount in dividends_df.items():
+            is_special = False
+            # regular_medianが計算できた場合のみ判定
+            if regular_median is not None and regular_median > 0:
+                # 中央値の2倍を超えたら特別配当とみなす
+                if amount > regular_median * 2:
+                    is_special = True
+            
+            if hasattr(date, 'strftime'):
+                date_str = date.strftime('%Y-%m-%d')
+            else:
+                date_str = str(date)[:10]
+
+            data_list.append((
+                ticker,
+                date_str,
+                float(amount),
+                is_special
+            ))
+
+        # 4. データベースを更新
         query = """
         INSERT INTO dividends (ticker, ex_date, amount, is_special)
         VALUES (%s, %s, %s, %s)
@@ -94,32 +151,6 @@ class StockDataUpdater:
             amount = VALUES(amount),
             is_special = VALUES(is_special)
         """
-
-        # 特別配当の検出（IQR法）
-        is_special_array = [False] * len(dividends_df)
-        if len(dividends_df) >= 4:
-            q1 = dividends_df.quantile(0.25)
-            q3 = dividends_df.quantile(0.75)
-            iqr = q3 - q1
-            upper_bound = q3 + 1.5 * iqr
-            is_special_array = (dividends_df > upper_bound).tolist()
-
-        data_list = []
-        for idx, (date, amount) in enumerate(dividends_df.items()):
-            # dateがTimestampオブジェクトか文字列かをチェック
-            if hasattr(date, 'strftime'):
-                date_str = date.strftime('%Y-%m-%d')
-            else:
-                # 既に文字列の場合はそのまま使用
-                date_str = str(date)[:10]  # YYYY-MM-DD形式に切り取り
-
-            data_list.append((
-                ticker,
-                date_str,
-                float(amount),
-                bool(is_special_array[idx])
-            ))
-
         return self.db.execute_many(query, data_list)
 
     def update_stock_prices(self, ticker, hist_df):
@@ -501,7 +532,7 @@ def batch_update_dividend_analysis():
                 )
 
                 # 通常配当利回りを計算（特別配当除く）
-                regular_yield, _ = InvestmentScreener.calculate_regular_dividend_yield(ticker)
+                regular_yield, regular_msg = InvestmentScreener.calculate_regular_dividend_yield(ticker)
 
                 # スコアを計算
                 if avg_yield is not None:
@@ -521,7 +552,11 @@ def batch_update_dividend_analysis():
                     updater.update_dividend_analysis(ticker, analysis_results)
 
                     success_count += 1
-                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_yield:.2f}%, 通常利回り={regular_yield:.2f}%, スコア={quality_score}")
+                    # 安全な表示: None の可能性がある値はフォーマット前にチェック
+                    avg_str = f"{avg_yield:.2f}%" if avg_yield is not None else "N/A"
+                    reg_str = f"{regular_yield:.2f}%" if regular_yield is not None and isinstance(regular_yield, (int, float)) else "N/A"
+                    score_str = f"{quality_score}" if quality_score is not None else "N/A"
+                    print(f"OK [{idx}/{total}] {ticker} ({name}): 平均利回り={avg_str}, 通常利回り={reg_str}, スコア={score_str}")
                 else:
                     error_count += 1
                     div_count = len(dividends) if dividends is not None else 0

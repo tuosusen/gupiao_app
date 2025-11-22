@@ -137,6 +137,22 @@ class DatabaseManager:
                 connection.close()
             return 0
 
+    def get_dividends_history(self, stock_code: str):
+        """
+        特定の銘柄の配当履歴を取得
+        Args:
+            stock_code: 銘柄コード
+        Returns:
+            配当履歴のリスト
+        """
+        query = """
+            SELECT ex_date as date, amount as dividend, is_special
+            FROM dividends
+            WHERE ticker = %s
+            ORDER BY ex_date
+        """
+        return self.execute_query(query, params=(stock_code,))
+
     def get_stocks_list(self):
         """全銘柄リストを取得"""
         query = "SELECT ticker, name, sector, market FROM stocks ORDER BY ticker"
