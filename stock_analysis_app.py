@@ -1400,7 +1400,10 @@ if mode == "個別銘柄分析" and run_analysis:
             st.metric("現在の株価", f"{current_price:,.2f}円")
 
         with col2:
-            company_name = info.get('longName', 'N/A')
+            # StockInfoモデルを使用して日本語名を取得
+            from domain.models.stock_info import StockInfo
+            stock_info = StockInfo.from_dict(info)
+            company_name = stock_info.name or 'N/A'
             st.metric("会社名", company_name)
 
         with col3:
