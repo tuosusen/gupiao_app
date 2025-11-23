@@ -166,3 +166,183 @@ class DatabaseManager:
         if result and len(result) > 0:
             return result[0]
         return None
+
+    def get_dividend_aristocrat_tickers(self) -> List[str]:
+        """
+        配当貴族スクリーニング用の銘柄コードリストを取得
+        
+        Returns:
+            銘柄コード(ticker)のリスト
+        """
+        query = """
+            SELECT DISTINCT ticker 
+            FROM stocks 
+            WHERE ticker IS NOT NULL 
+            ORDER BY ticker
+        """
+        result = self.execute_query(query)
+        if result:
+            return [row['ticker'] for row in result]
+        return []
+
+    def get_prime_market_tickers(self) -> List[str]:
+        """
+        プライム市場銘柄のリストを取得
+        現状は日本市場全銘柄を対象とする（将来的に市場区分を細分化）
+
+        Returns:
+            銘柄コードリスト
+        """
+        query = """
+            SELECT ticker
+            FROM stocks
+            WHERE (market = 'プライム' OR market = 'jp_market')
+                AND ticker IS NOT NULL
+            ORDER BY ticker
+        """
+        result = self.execute_query(query)
+        if result:
+            return [row['ticker'] for row in result]
+        return []
+
+    def get_dividend_aristocrats_metrics(
+        self, 
+        tickers: Optional[List[str]] = None,
+        min_consecutive_years: int = 0,
+        max_cache_age_hours: int = 24
+    ) -> List[Dict[str, Any]]:
+        """
+        配当貴族指標をDBから取得
+        
+        Args:
+            tickers: 銘柄コードリスト（Noneの場合は全件）
+            min_consecutive_years: 最低連続増配年数フィルタ
+            max_cache_age_hours: キャッシュの最大有効期間（時間）
+        
+        Returns:
+            指標データのリスト
+        """
+        if tickers:
+            placeholders = ','.join(['%s'] * len(tickers))
+            ticker_condition = f"AND ticker IN ({placeholders})"
+            params = tuple(tickers) + (min_consecutive_years,)
+        else:
+            ticker_condition = ""
+            params = (min_consecutive_years,)
+        
+        query = f"""
+            SELECT 
+                ticker,
+                company_name,
+                current_dividend_yield,
+                after_tax_yield,
+                consecutive_increase_years,
+                dividend_cagr_5y,
+                dividend_cagr_10y,
+                payout_ratio,
+                payout_ratio_status,
+                fcf_payout_ratio,
+                fcf_payout_status,
+                aristocrat_status,
+                data_quality,
+                last_updated,
+                calculation_error
+            FROM dividend_aristocrats_metrics
+            WHERE consecutive_increase_years >= %s
+                {ticker_condition}
+                AND last_updated >= DATE_SUB(NOW(), INTERVAL {max_cache_age_hours} HOUR)
+            ORDER BY consecutive_increase_years DESC, dividend_cagr_5y DESC
+        """
+        
+        result = self.execute_query(query, params)
+        return result if result else []
+
+    def upsert_dividend_aristocrat_metrics(
+        self,
+        ticker: str,
+        metrics: Dict[str, Any]
+    ) -> bool:
+        """
+        配当貴族指標をDBに保存（UPSERT）
+        
+        Args:
+            ticker: 銘柄コード
+            metrics: 指標データ
+        
+        Returns:
+            成功フラグ
+        """
+        query = """
+            INSERT INTO dividend_aristocrats_metrics (
+                ticker,
+                company_name,
+                current_dividend_yield,
+                after_tax_yield,
+                consecutive_increase_years,
+                dividend_cagr_5y,
+                dividend_cagr_10y,
+                payout_ratio,
+                payout_ratio_status,
+                fcf_payout_ratio,
+                fcf_payout_status,
+                aristocrat_status,
+                data_quality,
+                calculation_error
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            ON DUPLICATE KEY UPDATE
+                company_name = VALUES(company_name),
+                current_dividend_yield = VALUES(current_dividend_yield),
+                after_tax_yield = VALUES(after_tax_yield),
+                consecutive_increase_years = VALUES(consecutive_increase_years),
+                dividend_cagr_5y = VALUES(dividend_cagr_5y),
+                dividend_cagr_10y = VALUES(dividend_cagr_10y),
+                payout_ratio = VALUES(payout_ratio),
+                payout_ratio_status = VALUES(payout_ratio_status),
+                fcf_payout_ratio = VALUES(fcf_payout_ratio),
+                fcf_payout_status = VALUES(fcf_payout_status),
+                aristocrat_status = VALUES(aristocrat_status),
+                data_quality = VALUES(data_quality),
+                calculation_error = VALUES(calculation_error),
+                last_updated = CURRENT_TIMESTAMP
+        """
+        
+        params = (
+            ticker,
+            metrics.get('company_name'),
+            metrics.get('current_dividend_yield'),
+            metrics.get('after_tax_yield'),
+            metrics.get('consecutive_increase_years', 0),
+            metrics.get('dividend_cagr_5y'),
+            metrics.get('dividend_cagr_10y'),
+            metrics.get('payout_ratio'),
+            metrics.get('payout_ratio_status', ''),
+            metrics.get('fcf_payout_ratio'),
+            metrics.get('fcf_payout_status', ''),
+            metrics.get('aristocrat_status', ''),
+            metrics.get('data_quality', 'complete'),
+            metrics.get('calculation_error')
+        )
+        
+        result = self.execute_query(query, params, fetch=False)
+        return result is not None and result > 0
+
+    def get_cached_metrics_count(self) -> Dict[str, Any]:
+        """
+        キャッシュ統計を取得
+
+        Returns:
+            統計情報（総数、最終更新日時）
+        """
+        query = """
+            SELECT
+                COUNT(*) as total,
+                MAX(last_updated) as latest_update
+            FROM dividend_aristocrats_metrics
+        """
+
+        result = self.execute_query(query)
+        if result and len(result) > 0:
+            return result[0]
+        return {'total': 0, 'latest_update': None}

@@ -85,6 +85,65 @@ class DividendAristocratsPage:
         with st.expander("⚙️ カスタマイズ設定", expanded=False):
             use_default_screening = st.checkbox("デフォルト設定を使用（配当貴族）", value=True)
 
+            st.markdown("---")
+            st.markdown("**🚀 パフォーマンス設定**")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                use_cache = st.checkbox(
+                    "キャッシュを使用（高速）",
+                    value=True,
+                    help="DBキャッシュを使用して高速化。無効にすると常にyfinanceから取得"
+                )
+            with col2:
+                cache_age_hours = st.selectbox(
+                    "キャッシュ有効期間",
+                    [6, 12, 24, 48, 72],
+                    index=2,
+                    help="この期間内のキャッシュを使用"
+                )
+
+            if use_cache:
+                st.info("⚡ キャッシュモード: DBから高速取得（数秒）")
+            else:
+                st.warning("🐌 リアルタイムモード: yfinanceから取得（数分かかります）")
+
+            # キャッシュ管理セクション
+            st.markdown("---")
+            st.markdown("**💾 キャッシュ管理**")
+
+            from repository.database_manager import DatabaseManager
+            db_manager = DatabaseManager()
+
+            # キャッシュ統計を表示
+            cache_stats = db_manager.get_cached_metrics_count()
+            if cache_stats:
+                col_stat1, col_stat2 = st.columns(2)
+                with col_stat1:
+                    st.metric("キャッシュ済み銘柄", f"{cache_stats['total']} 銘柄")
+                with col_stat2:
+                    if cache_stats['latest_update']:
+                        st.metric("最終更新", cache_stats['latest_update'].strftime('%Y-%m-%d %H:%M'))
+                    else:
+                        st.metric("最終更新", "未更新")
+
+            # キャッシュ更新ボタン
+            col_btn1, col_btn2 = st.columns(2)
+
+            with col_btn1:
+                update_limit = st.number_input(
+                    "更新銘柄数",
+                    min_value=5,
+                    max_value=10000,
+                    value=50,
+                    step=10,
+                    help="一度に更新する銘柄数（全件更新は1621を指定）"
+                )
+
+            with col_btn2:
+                if st.button("🔄 キャッシュを更新", help="指定した銘柄数のキャッシュを更新します"):
+                    DividendAristocratsPage._update_cache(update_limit)
+
         if use_default_screening:
             st.info("🎯 デフォルト: 配当貴族（連続増配10年以上、CAGR 3%以上、配当性向80%以下）")
 
@@ -109,7 +168,7 @@ class DividendAristocratsPage:
                 "セクター": ["自動車", "電機", "通信", "通信", "通信",
                            "金融", "金融", "商社", "商社", "食品"]
             })
-            st.dataframe(ticker_info, use_container_width=True, hide_index=True)
+            st.dataframe(ticker_info, width='stretch', hide_index=True)
 
         else:
             st.info("✏️ カスタマイズ: 独自の条件を設定")
@@ -165,13 +224,15 @@ class DividendAristocratsPage:
                 st.warning("銘柄コードを入力してください")
             else:
                 with st.spinner(f"{len(ticker_list)}銘柄を分析中..."):
-                    # スクリーニング実行
+                    # スクリーニング実行（キャッシュパラメータを追加）
                     df_results = DividendAristocrats.screen_dividend_aristocrats(
                         ticker_list=ticker_list,
                         min_consecutive_years=min_consecutive_years,
                         min_cagr=min_cagr,
                         max_payout_ratio=max_payout_ratio,
-                        years=analysis_years
+                        years=analysis_years,
+                        use_cache=use_cache,
+                        max_cache_age_hours=cache_age_hours
                     )
 
                     if df_results.empty:
@@ -197,7 +258,7 @@ class DividendAristocratsPage:
                                 lambda x: f"{x:.2f}%" if pd.notnull(x) else "N/A"
                             )
 
-                        st.dataframe(df_display, use_container_width=True, hide_index=True)
+                        st.dataframe(df_display, width='stretch', hide_index=True)
 
                         # グラフ表示
                         col1, col2 = st.columns(2)
@@ -219,7 +280,7 @@ class DividendAristocratsPage:
                             )
 
                             fig.update_layout(height=400)
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width='stretch')
 
                         with col2:
                             st.subheader("📊 配当性向分布")
@@ -245,7 +306,7 @@ class DividendAristocratsPage:
                                 height=400
                             )
 
-                            st.plotly_chart(fig2, use_container_width=True)
+                            st.plotly_chart(fig2, width='stretch')
 
                         # 統計情報
                         st.subheader("📈 統計情報")
@@ -364,3 +425,66 @@ class DividendAristocratsPage:
 
                     for comment in comments:
                         st.markdown(comment)
+
+    @staticmethod
+    def _update_cache(limit: int = 50):
+        """UI内でキャッシュを更新"""
+        from repository.database_manager import DatabaseManager
+        import time
+
+        db_manager = DatabaseManager()
+
+        # プライム市場銘柄を取得
+        tickers = db_manager.get_prime_market_tickers()
+
+        if limit:
+            tickers = tickers[:limit]
+
+        st.info(f"🔄 {len(tickers)} 銘柄のキャッシュを更新中...")
+
+        # プログレスバー
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        success_count = 0
+        error_count = 0
+        start_time = time.time()
+
+        for i, ticker in enumerate(tickers):
+            try:
+                # 進捗表示
+                progress = (i + 1) / len(tickers)
+                progress_bar.progress(progress)
+                status_text.text(f"[{i+1}/{len(tickers)}] {ticker} を処理中...")
+
+                # 配当分析を実行
+                metrics = DividendAristocrats.analyze_dividend_growth(ticker, years=5)
+
+                if 'エラー' not in metrics:
+                    # データベースに保存
+                    db_manager.upsert_dividend_aristocrat_metrics(ticker, metrics)
+                    success_count += 1
+                else:
+                    error_count += 1
+
+                # API制限対策: 0.5秒待機
+                time.sleep(0.5)
+
+            except Exception as e:
+                error_count += 1
+                st.warning(f"⚠️ {ticker}: {str(e)}")
+
+        elapsed_time = time.time() - start_time
+
+        # 完了メッセージ
+        progress_bar.progress(1.0)
+        status_text.empty()
+
+        st.success(f"""
+        ✅ キャッシュ更新完了
+
+        - 成功: {success_count} 銘柄
+        - エラー: {error_count} 銘柄
+        - 所要時間: {elapsed_time:.1f}秒
+        - 平均処理時間: {elapsed_time/len(tickers):.2f}秒/銘柄
+        """)

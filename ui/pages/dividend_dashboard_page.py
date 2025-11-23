@@ -98,7 +98,7 @@ class DividendDashboardPage:
                 "銘柄名": ["三井住友FG", "みずほFG", "ソフトバンク", "NTT", "伊藤忠商事"],
                 "セクター": ["金融", "金融", "通信", "通信", "商社"]
             })
-            st.dataframe(sample_info, use_container_width=True, hide_index=True)
+            st.dataframe(sample_info, width='stretch', hide_index=True)
 
         else:
             # カスタマイズ: 手動入力
@@ -151,7 +151,7 @@ class DividendDashboardPage:
                         st.success(f"✅ {len(ticker_list)}銘柄の配当カレンダーを表示")
 
                         # カレンダー表示
-                        st.dataframe(df_calendar, use_container_width=True, hide_index=True)
+                        st.dataframe(df_calendar, width='stretch', hide_index=True)
 
                         # 月別集計
                         st.subheader("📊 月別配当予測")
@@ -162,7 +162,7 @@ class DividendDashboardPage:
                         monthly_summary.columns = ['月', '合計配当金']
                         monthly_summary['合計配当金'] = monthly_summary['合計配当金'].apply(lambda x: f"¥{x:.2f}")
 
-                        st.dataframe(monthly_summary, use_container_width=True, hide_index=True)
+                        st.dataframe(monthly_summary, width='stretch', hide_index=True)
                     else:
                         st.warning("配当情報が取得できませんでした")
 
@@ -275,7 +275,7 @@ class DividendDashboardPage:
             height=400
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     @staticmethod
     def _show_reinvestment_simulator():
@@ -424,7 +424,7 @@ class DividendDashboardPage:
                 height=500
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             # 詳細データ表
             with st.expander("📋 詳細データを表示"):
@@ -435,4 +435,4 @@ class DividendDashboardPage:
                     "年間配当（円）": [f"¥{d:,.0f}" for d in annual_dividends]
                 })
 
-                st.dataframe(df_simulation, use_container_width=True, hide_index=True)
+                st.dataframe(df_simulation, width='stretch', hide_index=True)

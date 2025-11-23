@@ -115,7 +115,43 @@ CREATE TABLE IF NOT EXISTS per_analysis (
     INDEX idx_is_low_per (is_low_per)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='PER分析結果';
 
--- 6. データ更新履歴テーブル
+-- 6. 配当貴族指標テーブル（計算済みキャッシュ）
+CREATE TABLE IF NOT EXISTS dividend_aristocrats_metrics (
+    ticker VARCHAR(10) PRIMARY KEY COMMENT '銘柄コード',
+    company_name VARCHAR(100) COMMENT '銘柄名',
+    
+    -- 配当利回り
+    current_dividend_yield DECIMAL(10,4) COMMENT '現在配当利回り(%)',
+    after_tax_yield DECIMAL(10,4) COMMENT '税引後利回り(%)',
+    
+    -- 配当成長指標
+    consecutive_increase_years INT DEFAULT 0 COMMENT '連続増配年数',
+    dividend_cagr_5y DECIMAL(10,4) COMMENT '配当CAGR 5年(%)',
+    dividend_cagr_10y DECIMAL(10,4) COMMENT '配当CAGR 10年(%)',
+    
+    -- 配当性向
+    payout_ratio DECIMAL(10,4) COMMENT '配当性向(%)',
+    payout_ratio_status VARCHAR(50) COMMENT '配当性向評価',
+    fcf_payout_ratio DECIMAL(10,4) COMMENT 'FCF配当性向(%)',
+    fcf_payout_status VARCHAR(50) COMMENT 'FCF配当性向評価',
+    
+    -- ステータス
+    aristocrat_status VARCHAR(50) COMMENT 'ステータス（配当貴族候補等）',
+    
+    -- メタデータ
+    data_quality VARCHAR(20) DEFAULT 'complete' COMMENT 'データ品質（complete/partial/incomplete）',
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
+    calculation_error TEXT COMMENT '計算エラーメッセージ',
+    
+    FOREIGN KEY (ticker) REFERENCES stocks(ticker) ON DELETE CASCADE,
+    INDEX idx_consecutive_years (consecutive_increase_years),
+    INDEX idx_dividend_cagr (dividend_cagr_5y),
+    INDEX idx_payout_ratio (payout_ratio),
+    INDEX idx_status (aristocrat_status),
+    INDEX idx_last_updated (last_updated)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='配当貴族指標（キャッシュ）';
+
+-- 7. データ更新履歴テーブル
 CREATE TABLE IF NOT EXISTS update_history (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     update_type VARCHAR(50) NOT NULL COMMENT '更新タイプ（full/incremental/single）',
