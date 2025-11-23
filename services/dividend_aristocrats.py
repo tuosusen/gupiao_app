@@ -273,6 +273,105 @@ class DividendAristocrats:
             }
 
     @staticmethod
+    def get_dividend_history(ticker_symbol: str, years: int = 10) -> pd.DataFrame:
+        """
+        配当履歴データを取得（グラフ表示用）
+        
+        Args:
+            ticker_symbol: 銘柄コード
+            years: 取得期間（年）
+            
+        Returns:
+            配当履歴のDataFrame (Year, Dividend, Yield, PayoutRatio)
+        """
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            dividends = ticker.dividends
+            
+            if dividends is None or dividends.empty:
+                return pd.DataFrame()
+            
+            # 年ごとの配当合計を計算
+            dividends_df = dividends.to_frame(name='dividend')
+            dividends_df['year'] = dividends_df.index.year
+            yearly_dividends = dividends_df.groupby('year')['dividend'].sum().sort_index()
+            
+            # 最近N年のデータに絞る
+            if len(yearly_dividends) > years:
+                yearly_dividends = yearly_dividends.tail(years)
+            
+            # DataFrameに変換
+            result_df = pd.DataFrame({
+                'Year': yearly_dividends.index,
+                'Dividend': yearly_dividends.values
+            })
+            
+            # 配当利回りを計算（年末株価が必要）
+            try:
+                hist = ticker.history(period=f"{years+1}y")
+                if not hist.empty:
+                    yields = []
+                    for year in result_df['Year']:
+                        # その年の最後の取引日の終値を取得
+                        year_data = hist[hist.index.year == year]
+                        if not year_data.empty:
+                            year_end_price = year_data['Close'].iloc[-1]
+                            dividend_amount = result_df[result_df['Year'] == year]['Dividend'].values[0]
+                            if year_end_price > 0:
+                                div_yield = (dividend_amount / year_end_price) * 100
+                                yields.append(div_yield)
+                            else:
+                                yields.append(None)
+                        else:
+                            yields.append(None)
+                    result_df['Yield'] = yields
+            except Exception:
+                result_df['Yield'] = None
+            
+            # 配当性向を計算（簡易版: 年次データから）
+            try:
+                financials = ticker.financials
+                if financials is not None and not financials.empty:
+                    # EPSまたは純利益から配当性向を計算
+                    payout_ratios = []
+                    for year in result_df['Year']:
+                        # 該当年のデータを探す
+                        year_cols = [col for col in financials.columns if col.year == year]
+                        if year_cols:
+                            # 純利益を取得
+                            net_income_row = None
+                            for row_name in ['Net Income', 'Net Income Common Stockholders']:
+                                if row_name in financials.index:
+                                    net_income_row = row_name
+                                    break
+                            
+                            if net_income_row:
+                                net_income = financials.loc[net_income_row, year_cols[0]]
+                                dividend_amount = result_df[result_df['Year'] == year]['Dividend'].values[0]
+                                
+                                # 発行済株式数を取得
+                                shares = ticker.info.get('sharesOutstanding')
+                                if shares and net_income and net_income > 0:
+                                    eps = net_income / shares
+                                    payout_ratio = (dividend_amount / eps) * 100
+                                    payout_ratios.append(payout_ratio)
+                                else:
+                                    payout_ratios.append(None)
+                            else:
+                                payout_ratios.append(None)
+                        else:
+                            payout_ratios.append(None)
+                    result_df['PayoutRatio'] = payout_ratios
+            except Exception:
+                result_df['PayoutRatio'] = None
+            
+            return result_df
+            
+        except Exception as e:
+            print(f"Error fetching dividend history for {ticker_symbol}: {str(e)}")
+            return pd.DataFrame()
+
+    @staticmethod
     def screen_dividend_aristocrats(
         ticker_list: Optional[List[str]] = None,
         min_consecutive_years: int = 5,
