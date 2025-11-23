@@ -54,32 +54,6 @@ class DividendAristocratsCacheUpdater:
                 result['status'] = 'error'
                 result['error'] = analysis['エラー']
                 return result
-            
-            # 10年CAGRも計算
-            analysis_10y = DividendAristocrats.analyze_dividend_growth(ticker, years=10)
-            dividend_cagr_10y = analysis_10y.get('配当CAGR') if 'エラー' not in analysis_10y else None
-            
-            # データベース保存用のメトリクスを構築
-            metrics = {
-                'company_name': analysis.get('銘柄名'),
-                'current_dividend_yield': analysis.get('現在配当利回り'),
-                'after_tax_yield': analysis.get('税引後利回り'),
-                'consecutive_increase_years': analysis.get('連続増配年数', 0),
-                'dividend_cagr_5y': analysis.get('配当CAGR'),
-                'dividend_cagr_10y': dividend_cagr_10y,
-                'payout_ratio': analysis.get('配当性向'),
-                'payout_ratio_status': analysis.get('配当性向評価', ''),
-                'fcf_payout_ratio': analysis.get('FCF配当性向'),
-                'fcf_payout_status': analysis.get('FCF配当性向評価', ''),
-                'aristocrat_status': analysis.get('ステータス', ''),
-                'data_quality': self._assess_data_quality(analysis),
-                'calculation_error': None
-            }
-            
-            # データベースに保存
-            success = self.db_manager.upsert_dividend_aristocrat_metrics(ticker, metrics)
-            
-            if not success:
                 result['status'] = 'error'
                 result['error'] = 'データベース保存失敗'
                 

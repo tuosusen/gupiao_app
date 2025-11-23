@@ -236,13 +236,27 @@ class DividendAristocratsPage:
                     help="過去何年分の配当データを分析するか"
                 )
 
-            # 銘柄入力
-            ticker_input = st.text_area(
-                "銘柄コードを入力（カンマ区切り）",
-                value="7203.T, 6758.T, 9432.T, 9433.T, 8316.T, 8001.T",
-                help="日本株は.T、米国株はそのまま"
+            # 銘柄選択方法
+            st.markdown("**📋 銘柄選択**")
+            ticker_selection_mode = st.radio(
+                "銘柄選択方法",
+                ["手動入力", "プライム市場全銘柄"],
+                horizontal=True
             )
-            ticker_list = [t.strip() for t in ticker_input.split(",") if t.strip()]
+
+            if ticker_selection_mode == "手動入力":
+                ticker_input = st.text_area(
+                    "銘柄コードを入力（カンマ区切り）",
+                    value="7203.T, 6758.T, 9432.T, 9433.T, 8316.T, 8001.T",
+                    help="日本株は.T、米国株はそのまま"
+                )
+                ticker_list = [t.strip() for t in ticker_input.split(",") if t.strip()]
+            else:
+                # プライム市場全銘柄を取得
+                prime_tickers = db_manager.get_prime_market_tickers()
+                ticker_list = prime_tickers
+                st.info(f"🎯 プライム市場全銘柄: {len(ticker_list)} 銘柄を対象にスクリーニングします")
+                st.caption("⚠️ キャッシュを使用することを強く推奨します（キャッシュなしの場合は数時間かかります）")
 
         if st.button("🔍 スクリーニング実行", type="primary"):
             if not ticker_list:
@@ -291,47 +305,76 @@ class DividendAristocratsPage:
                         with col1:
                             st.subheader("📈 連続増配年数 vs 配当CAGR")
 
-                            # 数値列を取得
-                            df_numeric = df_results.copy()
+                            # 完全にPandas/NumPy形式に変換（Narwhals対策）
+                            try:
+                                # Pandas DataFrameに変換
+                                if hasattr(df_results, 'to_pandas'):
+                                    df_plot = df_results.to_pandas()
+                                else:
+                                    df_plot = df_results.copy()
 
-                            fig = px.scatter(
-                                df_numeric,
-                                x='連続増配年数',
-                                y='配当CAGR',
-                                size='現在配当利回り',
-                                color='ステータス',
-                                hover_data=['銘柄コード', '銘柄名', '配当性向'],
-                                title="配当成長分析マップ"
-                            )
+                                # 全列をPythonのリストに変換してから新しいDataFrameを作成
+                                plot_dict = {col: df_plot[col].tolist() for col in df_plot.columns}
+                                df_numeric = pd.DataFrame(plot_dict)
 
-                            fig.update_layout(height=400)
-                            st.plotly_chart(fig, width='stretch')
+                                # NaN除外
+                                df_numeric = df_numeric.dropna(subset=['連続増配年数', '配当CAGR', '現在配当利回り'])
+
+                                if not df_numeric.empty:
+                                    fig = px.scatter(
+                                        df_numeric,
+                                        x='連続増配年数',
+                                        y='配当CAGR',
+                                        size='現在配当利回り',
+                                        color='ステータス',
+                                        hover_data=['銘柄コード', '銘柄名', '配当性向'],
+                                        title="配当成長分析マップ"
+                                    )
+                                    fig.update_layout(height=400)
+                                    st.plotly_chart(fig, width='stretch')
+                                else:
+                                    st.info("グラフ表示に必要なデータがありません")
+                            except Exception as e:
+                                st.error(f"グラフ生成エラー: {str(e)}")
 
                         with col2:
                             st.subheader("📊 配当性向分布")
 
-                            # 配当性向のヒストグラム
-                            fig2 = go.Figure()
-                            fig2.add_trace(go.Histogram(
-                                x=df_results['配当性向'],
-                                nbinsx=10,
-                                marker_color='lightblue'
-                            ))
+                            # 配当性向のヒストグラム（Narwhals対策）
+                            try:
+                                # df_numericが既に作成されている場合はそれを使用
+                                if 'df_numeric' in locals() and not df_numeric.empty:
+                                    payout_values = df_numeric['配当性向'].dropna().tolist()
+                                else:
+                                    # df_resultsから直接取得
+                                    payout_series = df_results['配当性向']
+                                    payout_values = [x for x in payout_series.tolist() if pd.notna(x)]
 
-                            # 健全範囲をハイライト
-                            fig2.add_vline(x=60, line_dash="dash", line_color="green",
-                                          annotation_text="健全上限(60%)")
-                            fig2.add_vline(x=80, line_dash="dash", line_color="orange",
-                                          annotation_text="警戒ライン(80%)")
+                                if payout_values:
+                                    fig2 = go.Figure()
+                                    fig2.add_trace(go.Histogram(
+                                        x=payout_values,
+                                        nbinsx=10,
+                                        marker_color='lightblue'
+                                    ))
 
-                            fig2.update_layout(
-                                title="配当性向の分布",
-                                xaxis_title="配当性向 (%)",
-                                yaxis_title="銘柄数",
-                                height=400
-                            )
+                                    # 健全範囲をハイライト
+                                    fig2.add_vline(x=60, line_dash="dash", line_color="green",
+                                                  annotation_text="健全上限(60%)")
+                                    fig2.add_vline(x=80, line_dash="dash", line_color="orange",
+                                                  annotation_text="警戒ライン(80%)")
 
-                            st.plotly_chart(fig2, width='stretch')
+                                    fig2.update_layout(
+                                        title="配当性向の分布",
+                                        xaxis_title="配当性向 (%)",
+                                        yaxis_title="銘柄数",
+                                        height=400
+                                    )
+                                    st.plotly_chart(fig2, width='stretch')
+                                else:
+                                    st.info("配当性向データがありません")
+                            except Exception as e:
+                                st.error(f"ヒストグラム生成エラー: {str(e)}")
 
                         # 統計情報
                         st.subheader("📈 統計情報")
