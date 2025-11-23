@@ -10,6 +10,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 import io
 import requests
+from services.screening_presets import ScreeningPresets
 
 # Streamlitアプリの設定 - ページ設定を最初に
 st.set_page_config(
@@ -82,12 +83,118 @@ else:
     st.sidebar.subheader("スクリーニングモード")
     screening_mode = st.sidebar.radio(
         "モードを選択",
-        ["基本モード", "高度な配当分析", "高度なPER分析", "カスタム条件"],
-        help="基本モード: シンプルな条件でスクリーニング\n高度な配当分析: 過去の配当履歴を考慮\n高度なPER分析: 過去のPER推移を考慮"
+        ["🎁 プリセット選択", "基本モード", "高度な配当分析", "高度なPER分析", "カスタム条件"],
+        help="プリセット選択: 事前定義されたスクリーニング条件を使用\n基本モード: シンプルな条件でスクリーニング\n高度な配当分析: 過去の配当履歴を考慮\n高度なPER分析: 過去のPER推移を考慮"
     )
 
-    # 配当条件
-    st.sidebar.subheader("📊 配当条件")
+    # プリセット選択モード
+    if screening_mode == "🎁 プリセット選択":
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🎁 プリセット選択**")
+
+        preset_names = ScreeningPresets.get_preset_names()
+        selected_preset_name = st.sidebar.selectbox(
+            "プリセットを選択",
+            preset_names,
+            format_func=lambda x: ScreeningPresets.get_preset_with_icon(x),
+            help="事前定義されたスクリーニング条件を選択してください"
+        )
+
+        selected_preset = ScreeningPresets.get_preset(selected_preset_name)
+
+        # プリセット情報を表示
+        st.sidebar.info(f"**説明:** {selected_preset['description']}\n\n**対象:** {selected_preset['target_user']}")
+
+        # 条件カスタマイズの有効化
+        st.sidebar.markdown("---")
+        customize_preset = st.sidebar.checkbox("✏️ 条件をカスタマイズ", value=False, help="プリセットの条件を編集できます")
+
+        if customize_preset:
+            st.sidebar.markdown("**📝 条件を編集**")
+            preset_conditions = selected_preset['conditions'].copy()
+
+            # 表示する条件のメタデータを定義
+            condition_definitions = {
+                "📊 配当条件": {
+                    "expanded": True,
+                    "fields": {
+                        "min_dividend_yield": {"label": "最低配当利回り (%)", "type": "number_input", "step": 0.5, "max_value": 20.0},
+                        "min_avg_yield": {"label": "最低平均配当利回り (%)", "type": "number_input", "step": 0.5, "max_value": 20.0},
+                        "max_dividend_cv": {"label": "最大配当変動係数", "type": "number_input", "step": 0.1, "max_value": 2.0},
+                        "min_quality_score": {"label": "最低配当品質スコア", "type": "slider", "step": 5, "max_value": 100},
+                        "exclude_special_dividend": {"label": "特別配当を除外", "type": "checkbox"},
+                    }
+                },
+                "💰 バリュエーション条件": {
+                    "expanded": False,
+                    "fields": {
+                        "max_per": {"label": "最大PER", "type": "number_input", "step": 1.0, "max_value": 100.0},
+                        "max_pbr": {"label": "最大PBR", "type": "number_input", "step": 0.1, "max_value": 10.0},
+                    }
+                },
+                "💼 財務健全性条件": {
+                    "expanded": False,
+                    "fields": {
+                        "min_equity_ratio": {"label": "最低自己資本比率 (%)", "type": "number_input", "step": 5.0, "max_value": 100.0},
+                        "min_current_ratio": {"label": "最低流動比率 (%)", "type": "number_input", "step": 10.0, "max_value": 500.0},
+                    }
+                }
+            }
+
+            # ループでUIを生成
+            for expander_label, definition in condition_definitions.items():
+                # プリセットに一つでも該当項目があればExpanderを表示
+                if any(key in preset_conditions for key in definition["fields"]):
+                    with st.sidebar.expander(expander_label, expanded=definition["expanded"]):
+                        for key, params in definition["fields"].items():
+                            if key in preset_conditions:
+                                value = preset_conditions[key]
+
+                                if params["type"] == "number_input":
+                                    new_value = st.number_input(
+                                        params["label"],
+                                        min_value=0.0,
+                                        max_value=params["max_value"],
+                                        value=float(value),
+                                        step=params["step"],
+                                        key=f"preset_{key}"
+                                    )
+                                    preset_conditions[key] = new_value if new_value > 0 else None
+                                elif params["type"] == "slider":
+                                    new_value = st.slider(
+                                        params["label"],
+                                        min_value=0,
+                                        max_value=params["max_value"],
+                                        value=int(value),
+                                        step=params["step"],
+                                        key=f"preset_{key}"
+                                    )
+                                    preset_conditions[key] = new_value
+                                elif params["type"] == "checkbox":
+                                    new_value = st.checkbox(
+                                        params["label"],
+                                        value=bool(value),
+                                        key=f"preset_{key}"
+                                    )
+                                    preset_conditions[key] = new_value
+            use_preset = True
+        else:
+            # プリセット条件をそのまま使用
+            with st.sidebar.expander("📋 設定条件を確認"):
+                conditions = selected_preset['conditions']
+                for key, value in conditions.items():
+                    if key != 'use_db':
+                        st.write(f"**{key}:** {value}")
+
+            preset_conditions = selected_preset['conditions']
+            use_preset = True
+    else:
+        use_preset = False
+        preset_conditions = None
+
+    # 配当条件（プリセット選択以外のモード）
+    if screening_mode != "🎁 プリセット選択":
+        st.sidebar.subheader("📊 配当条件")
 
     if screening_mode in ["基本モード", "カスタム条件"]:
         use_basic_dividend = st.sidebar.checkbox("基本的な配当利回り条件を使用", value=True)
@@ -1733,25 +1840,44 @@ elif mode == "銘柄スクリーニング":
 
         if st.button("スクリーニング実行", type="primary", key="db_screening_button"):
             # DBスクリーニング用の条件辞書を作成
-            db_conditions = {
-                'min_dividend_yield': min_dividend_yield if min_dividend_yield > 0 else None,
-                'max_per': max_per if max_per < 50 else None,
-                'max_pbr': max_pbr if max_pbr < 10 else None,
-                'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
-                'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
-                'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
-                'market': 'プライム' if market == "全銘柄" else None,
-                'min_profit_margin': (min_profit_margin / 100.0) if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
-                'revenue_growth': revenue_growth if 'revenue_growth' in locals() and revenue_growth else False,
-                'dividend_growth': dividend_growth if 'dividend_growth' in locals() and dividend_growth else False,
-                # 高度なPER条件（表示用のみ、データベースではフィルタリングされない）
-                'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
-                'per_years': per_years if 'per_years' in locals() else 4,
-                'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
-                'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
-                'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
-                'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False
-            }
+            if use_preset and preset_conditions:
+                # プリセット条件を使用
+                db_conditions = {
+                    'min_dividend_yield': preset_conditions.get('min_dividend_yield'),
+                    'max_per': preset_conditions.get('max_per'),
+                    'max_pbr': preset_conditions.get('max_pbr'),
+                    'min_avg_dividend_yield': preset_conditions.get('min_avg_yield'),
+                    'min_dividend_quality_score': preset_conditions.get('min_quality_score'),
+                    'exclude_special_dividend': preset_conditions.get('exclude_special_dividend', False),
+                    'market': 'プライム' if market == "全銘柄" else None,
+                    'max_dividend_cv': preset_conditions.get('max_dividend_cv'),
+                    'min_equity_ratio': preset_conditions.get('min_equity_ratio'),
+                    'min_current_ratio': preset_conditions.get('min_current_ratio'),
+                    'dividend_trend': preset_conditions.get('dividend_trend')
+                }
+                # Noneの値を除去
+                db_conditions = {k: v for k, v in db_conditions.items() if v is not None}
+            else:
+                # 手動設定の条件を使用
+                db_conditions = {
+                    'min_dividend_yield': min_dividend_yield if min_dividend_yield > 0 else None,
+                    'max_per': max_per if max_per < 50 else None,
+                    'max_pbr': max_pbr if max_pbr < 10 else None,
+                    'min_avg_dividend_yield': min_avg_dividend_yield if 'min_avg_dividend_yield' in locals() and min_avg_dividend_yield else None,
+                    'min_dividend_quality_score': min_dividend_quality_score if 'min_dividend_quality_score' in locals() and min_dividend_quality_score else None,
+                    'exclude_special_dividend': exclude_special_dividend if 'exclude_special_dividend' in locals() else False,
+                    'market': 'プライム' if market == "全銘柄" else None,
+                    'min_profit_margin': (min_profit_margin / 100.0) if 'min_profit_margin' in locals() and min_profit_margin > 0 else None,
+                    'revenue_growth': revenue_growth if 'revenue_growth' in locals() and revenue_growth else False,
+                    'dividend_growth': dividend_growth if 'dividend_growth' in locals() and dividend_growth else False,
+                    # 高度なPER条件（表示用のみ、データベースではフィルタリングされない）
+                    'use_advanced_per': use_advanced_per if 'use_advanced_per' in locals() else False,
+                    'per_years': per_years if 'per_years' in locals() else 4,
+                    'min_avg_per': min_avg_per if 'min_avg_per' in locals() else None,
+                    'max_avg_per': max_avg_per if 'max_avg_per' in locals() else None,
+                    'max_per_cv': max_per_cv if 'max_per_cv' in locals() else None,
+                    'low_current_high_avg_per': low_current_high_avg_per if 'low_current_high_avg_per' in locals() else False
+                }
 
             with st.spinner("データベースから検索中..."):
                 results = db_manager.get_screening_data(db_conditions)
