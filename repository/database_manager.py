@@ -206,32 +206,46 @@ class DatabaseManager:
         return []
 
     def get_dividend_aristocrats_metrics(
-        self, 
+        self,
         tickers: Optional[List[str]] = None,
         min_consecutive_years: int = 0,
         max_cache_age_hours: int = 24
     ) -> List[Dict[str, Any]]:
         """
         配当貴族指標をDBから取得
-        
+
         Args:
             tickers: 銘柄コードリスト（Noneの場合は全件）
             min_consecutive_years: 最低連続増配年数フィルタ
             max_cache_age_hours: キャッシュの最大有効期間（時間）
-        
+
         Returns:
             指標データのリスト
         """
+        # 大量の銘柄リストの場合は分割処理（MySQLのIN句の制限対策）
+        if tickers and len(tickers) > 1000:
+            all_results = []
+            batch_size = 500
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i:i+batch_size]
+                batch_results = self.get_dividend_aristocrats_metrics(
+                    tickers=batch,
+                    min_consecutive_years=min_consecutive_years,
+                    max_cache_age_hours=max_cache_age_hours
+                )
+                all_results.extend(batch_results)
+            return all_results
+
         if tickers:
             placeholders = ','.join(['%s'] * len(tickers))
             ticker_condition = f"AND ticker IN ({placeholders})"
-            params = tuple(tickers) + (min_consecutive_years,)
+            params = (min_consecutive_years,) + tuple(tickers)
         else:
             ticker_condition = ""
             params = (min_consecutive_years,)
-        
+
         query = f"""
-            SELECT 
+            SELECT
                 ticker,
                 company_name,
                 current_dividend_yield,
@@ -253,7 +267,7 @@ class DatabaseManager:
                 AND last_updated >= DATE_SUB(NOW(), INTERVAL {max_cache_age_hours} HOUR)
             ORDER BY consecutive_increase_years DESC, dividend_cagr_5y DESC
         """
-        
+
         result = self.execute_query(query, params)
         return result if result else []
 

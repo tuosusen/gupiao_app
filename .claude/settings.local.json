@@ -12,7 +12,8 @@
       "Bash(timeout:*)",
       "Bash(powershell -Command \"(Get-Content ''ui\\pages\\dividend_aristocrats_page.py'') -replace ''use_container_width=True'', \"\"width=''stretch''\"\" | Set-Content ''ui\\pages\\dividend_aristocrats_page.py''\")",
       "Bash(powershell -Command:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(del d:gupiao_apptest_cache_retrieval.py d:gupiao_appdebug_sql.py)"
     ],
     "deny": [],
     "ask": []
