@@ -117,8 +117,10 @@ class DividendAristocratsPage:
 
             # キャッシュ統計を表示
             cache_stats = db_manager.get_cached_metrics_count()
+            quality_stats = db_manager.get_cache_quality_stats()
+
             if cache_stats:
-                col_stat1, col_stat2 = st.columns(2)
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
                 with col_stat1:
                     st.metric("キャッシュ済み銘柄", f"{cache_stats['total']} 銘柄")
                 with col_stat2:
@@ -126,6 +128,29 @@ class DividendAristocratsPage:
                         st.metric("最終更新", cache_stats['latest_update'].strftime('%Y-%m-%d %H:%M'))
                     else:
                         st.metric("最終更新", "未更新")
+                with col_stat3:
+                    quality_score = quality_stats.get('overall_quality_score', 0)
+                    st.metric("データ品質スコア", f"{quality_score:.1f}/100")
+
+                # データ品質の内訳を表示
+                if quality_stats.get('by_quality'):
+                    with st.expander("📊 データ品質の詳細", expanded=False):
+                        for row in quality_stats['by_quality']:
+                            quality = row['data_quality']
+                            count = row['count']
+                            pct = row['percentage']
+
+                            if quality == 'complete':
+                                icon = "✅"
+                                label = "完全"
+                            elif quality == 'partial':
+                                icon = "⚠️"
+                                label = "部分的"
+                            else:
+                                icon = "❌"
+                                label = "不完全"
+
+                            st.write(f"{icon} **{label}**: {count} 銘柄 ({pct}%)")
 
             # キャッシュ更新ボタン
             col_btn1, col_btn2 = st.columns(2)

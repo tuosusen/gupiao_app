@@ -346,3 +346,45 @@ class DatabaseManager:
         if result and len(result) > 0:
             return result[0]
         return {'total': 0, 'latest_update': None}
+
+    def get_cache_quality_stats(self) -> Dict[str, Any]:
+        """
+        キャッシュのデータ品質統計を取得
+
+        Returns:
+            品質別の統計情報
+        """
+        query = """
+            SELECT
+                data_quality,
+                COUNT(*) as count,
+                ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM dividend_aristocrats_metrics), 2) as percentage
+            FROM dividend_aristocrats_metrics
+            GROUP BY data_quality
+            ORDER BY
+                CASE data_quality
+                    WHEN 'complete' THEN 1
+                    WHEN 'partial' THEN 2
+                    WHEN 'incomplete' THEN 3
+                    ELSE 4
+                END
+        """
+
+        result = self.execute_query(query)
+        if result:
+            stats = {
+                'by_quality': result,
+                'total': sum(row['count'] for row in result)
+            }
+
+            # 品質スコア（complete=100, partial=50, incomplete=0の加重平均）
+            quality_weights = {'complete': 100, 'partial': 50, 'incomplete': 0}
+            total_score = sum(
+                row['count'] * quality_weights.get(row['data_quality'], 0)
+                for row in result
+            )
+            stats['overall_quality_score'] = round(total_score / stats['total'], 2) if stats['total'] > 0 else 0
+
+            return stats
+
+        return {'by_quality': [], 'total': 0, 'overall_quality_score': 0}

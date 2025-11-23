@@ -120,25 +120,66 @@ class DividendAristocratsCacheUpdater:
         else:
             return 'incomplete'
     
-    def update_prime_market_stocks(self, limit: Optional[int] = None, delay: float = 1.0):
+    def update_prime_market_stocks(
+        self,
+        limit: Optional[int] = None,
+        delay: float = 1.0,
+        incremental: bool = False,
+        max_age_hours: int = 168
+    ):
         """
         プライム市場銘柄の配当指標を一括更新
-        
+
         Args:
             limit: 更新する銘柄数の上限（Noneの場合は全件）
             delay: API呼び出し間の待機時間（秒）
+            incremental: True=増分更新（古いキャッシュのみ）、False=全件更新
+            max_age_hours: 増分更新時のキャッシュ有効期間（時間）
         """
         print("=" * 60)
-        print("配当貴族指標キャッシュ更新開始")
+        if incremental:
+            print(f"配当貴族指標キャッシュ増分更新開始（{max_age_hours}時間以上前を更新）")
+        else:
+            print("配当貴族指標キャッシュ全件更新開始")
         print("=" * 60)
-        
+
         # プライム市場銘柄リストを取得
-        tickers = self.db_manager.get_prime_market_tickers()
-        
-        if not tickers:
+        all_tickers = self.db_manager.get_prime_market_tickers()
+
+        if not all_tickers:
             print("[ERROR] プライム市場銘柄が見つかりませんでした")
             return
-        
+
+        # 増分更新の場合、古いキャッシュの銘柄のみをフィルタ
+        if incremental:
+            # 古いキャッシュを取得
+            query = f"""
+                SELECT ticker
+                FROM dividend_aristocrats_metrics
+                WHERE last_updated < DATE_SUB(NOW(), INTERVAL {max_age_hours} HOUR)
+            """
+            old_cache = self.db_manager.execute_query(query)
+            old_tickers = {row['ticker'] for row in old_cache} if old_cache else set()
+
+            # キャッシュされていない銘柄も取得
+            cached_query = "SELECT ticker FROM dividend_aristocrats_metrics"
+            cached = self.db_manager.execute_query(cached_query)
+            cached_tickers = {row['ticker'] for row in cached} if cached else set()
+
+            not_cached = set(all_tickers) - cached_tickers
+
+            # 古いキャッシュ + 未キャッシュ
+            tickers_to_update = list(old_tickers | not_cached)
+
+            print(f"[INFO] 全銘柄数: {len(all_tickers)}")
+            print(f"[INFO] 古いキャッシュ: {len(old_tickers)} 銘柄")
+            print(f"[INFO] 未キャッシュ: {len(not_cached)} 銘柄")
+            print(f"[INFO] 更新対象: {len(tickers_to_update)} 銘柄")
+
+            tickers = tickers_to_update
+        else:
+            tickers = all_tickers
+
         if limit:
             tickers = tickers[:limit]
         
@@ -245,11 +286,18 @@ def main():
     parser = argparse.ArgumentParser(description='配当貴族指標キャッシュ更新')
     parser.add_argument('--limit', type=int, help='更新する銘柄数の上限（テスト用）')
     parser.add_argument('--delay', type=float, default=1.0, help='API呼び出し間の待機時間（秒）')
-    
+    parser.add_argument('--incremental', action='store_true', help='増分更新モード（古いキャッシュのみ更新）')
+    parser.add_argument('--max-age', type=int, default=168, help='増分更新時のキャッシュ有効期間（時間、デフォルト168=1週間）')
+
     args = parser.parse_args()
-    
+
     updater = DividendAristocratsCacheUpdater()
-    updater.update_prime_market_stocks(limit=args.limit, delay=args.delay)
+    updater.update_prime_market_stocks(
+        limit=args.limit,
+        delay=args.delay,
+        incremental=args.incremental,
+        max_age_hours=args.max_age
+    )
 
 
 if __name__ == '__main__':
