@@ -310,19 +310,19 @@ class DatabaseManager:
         
         params = (
             ticker,
-            metrics.get('company_name'),
-            metrics.get('current_dividend_yield'),
-            metrics.get('after_tax_yield'),
-            metrics.get('consecutive_increase_years', 0),
-            metrics.get('dividend_cagr_5y'),
+            metrics.get('銘柄名') or metrics.get('company_name'),
+            metrics.get('現在配当利回り') or metrics.get('current_dividend_yield'),
+            metrics.get('税引後利回り') or metrics.get('after_tax_yield'),
+            metrics.get('連続増配年数', 0) or metrics.get('consecutive_increase_years', 0),
+            metrics.get('配当CAGR') or metrics.get('dividend_cagr_5y'),
             metrics.get('dividend_cagr_10y'),
-            metrics.get('payout_ratio'),
-            metrics.get('payout_ratio_status', ''),
-            metrics.get('fcf_payout_ratio'),
-            metrics.get('fcf_payout_status', ''),
-            metrics.get('aristocrat_status', ''),
+            metrics.get('配当性向') or metrics.get('payout_ratio'),
+            metrics.get('配当性向評価', '') or metrics.get('payout_ratio_status', ''),
+            metrics.get('FCF配当性向') or metrics.get('fcf_payout_ratio'),
+            metrics.get('FCF配当性向評価', '') or metrics.get('fcf_payout_status', ''),
+            metrics.get('ステータス', '') or metrics.get('aristocrat_status', ''),
             metrics.get('data_quality', 'complete'),
-            metrics.get('calculation_error')
+            metrics.get('エラー') or metrics.get('calculation_error')
         )
         
         result = self.execute_query(query, params, fetch=False)

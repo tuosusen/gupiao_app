@@ -9,7 +9,10 @@
       "Bash(python:*)",
       "Bash(git mv:*)",
       "Bash(git rm:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(powershell -Command \"(Get-Content ''ui\\pages\\dividend_aristocrats_page.py'') -replace ''use_container_width=True'', \"\"width=''stretch''\"\" | Set-Content ''ui\\pages\\dividend_aristocrats_page.py''\")",
+      "Bash(powershell -Command:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
